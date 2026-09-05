@@ -1,20 +1,21 @@
 // app.js
+require('dotenv').config();
 const express = require('express');
 const session = require('express-session');
 const bcrypt = require('bcrypt');
-const db = require('./db');
+const { db, initDB } = require('./db');
 
 const app = express();
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
 
 // 中间件
 app.set('view engine', 'ejs');
 app.use(express.urlencoded({ extended: true }));
 app.use(session({
-  secret: 'your-secret-key-change-this',
+  secret: process.env.SESSION_SECRET || 'dev-secret-change-me',
   resave: false,
   saveUninitialized: false,
-  cookie: { maxAge: 1000 * 60 * 60 * 24 } // 1天
+  cookie: { maxAge: 1000 * 60 * 60 * 24 }
 }));
 
 // 认证中间件
@@ -25,7 +26,6 @@ function requireAuth(req, res, next) {
   res.redirect('/login');
 }
 
-// 管理员权限中间件
 function requireRoot(req, res, next) {
   if (req.session && req.session.role === 'root') {
     return next();
@@ -33,7 +33,17 @@ function requireRoot(req, res, next) {
   res.status(403).send('无权限访问');
 }
 
-// 路由
+// 初始化数据库
+initDB()
+  .then(() => {
+    console.log('数据库初始化完成');
+  })
+  .catch(err => {
+    console.error('数据库初始化失败:', err);
+    process.exit(1);
+  });
+
+// 首页路由
 app.get('/', (req, res) => {
   if (req.session.userId) {
     res.redirect('/dashboard');
@@ -48,7 +58,7 @@ app.get('/register', (req, res) => {
 });
 
 // 注册处理
-app.post('/register', (req, res) => {
+app.post('/register', async (req, res) => {
   const { username, email, password, confirm_password } = req.body;
   if (!username || !email || !password || !confirm_password) {
     return res.render('register', { error: '所有字段均为必填' });
@@ -60,20 +70,30 @@ app.post('/register', (req, res) => {
     return res.render('register', { error: '密码长度至少为8位' });
   }
 
-  const userExists = db.prepare('SELECT * FROM users WHERE username = ?').get(username);
-  if (userExists) {
+  // 检查用户名
+  const userResult = await db.execute({
+    sql: 'SELECT * FROM users WHERE username = ?',
+    args: [username]
+  });
+  if (userResult.rows.length > 0) {
     return res.render('register', { error: '用户名已存在' });
   }
 
-  const emailExists = db.prepare('SELECT * FROM users WHERE email = ?').get(email);
-  if (emailExists) {
+  // 检查邮箱
+  const emailResult = await db.execute({
+    sql: 'SELECT * FROM users WHERE email = ?',
+    args: [email]
+  });
+  if (emailResult.rows.length > 0) {
     return res.render('register', { error: '邮箱已被注册' });
   }
 
   const saltRounds = 10;
   const passwordHash = bcrypt.hashSync(password, saltRounds);
-  db.prepare('INSERT INTO users (username, email, password_hash, is_approved, role) VALUES (?, ?, ?, 0, ?)')
-    .run(username, email, passwordHash, 'user');
+  await db.execute({
+    sql: 'INSERT INTO users (username, email, password_hash, is_approved, role) VALUES (?, ?, ?, 0, ?)',
+    args: [username, email, passwordHash, 'user']
+  });
 
   res.redirect('/login?registered=1');
 });
@@ -85,13 +105,17 @@ app.get('/login', (req, res) => {
 });
 
 // 登录处理
-app.post('/login', (req, res) => {
+app.post('/login', async (req, res) => {
   const { username, password } = req.body;
   if (!username || !password) {
     return res.render('login', { error: '用户名和密码不能为空', registered: false });
   }
 
-  const user = db.prepare('SELECT * FROM users WHERE username = ?').get(username);
+  const userResult = await db.execute({
+    sql: 'SELECT * FROM users WHERE username = ?',
+    args: [username]
+  });
+  const user = userResult.rows[0];
   if (!user) {
     return res.render('login', { error: '用户不存在', registered: false });
   }
@@ -118,21 +142,22 @@ app.get('/logout', (req, res) => {
   });
 });
 
-// 仪表板（需要登录）
-app.get('/dashboard', requireAuth, (req, res) => {
+// 仪表板
+app.get('/dashboard', requireAuth, async (req, res) => {
   const isRoot = req.session.role === 'root';
-  const puzzles = db.prepare(`
+  const puzzlesResult = await db.execute(`
     SELECT p.*,
            (SELECT COUNT(*) FROM intermediate_answers ia WHERE ia.puzzle_id = p.id) AS inter_count,
            (SELECT COUNT(*) FROM hints h WHERE h.puzzle_id = p.id) AS hint_count
     FROM puzzles p
     ORDER BY p.created_at DESC
-  `).all();
+  `);
+  const puzzles = puzzlesResult.rows;
   res.render('dashboard', { username: req.session.username, puzzles, isRoot, userRole: req.session.role });
 });
 
-// 添加题目（仅 root）
-app.post('/puzzles', requireAuth, requireRoot, (req, res) => {
+// 添加谜题
+app.post('/puzzles', requireAuth, requireRoot, async (req, res) => {
   const {
     name = '',
     tags = '',
@@ -150,46 +175,72 @@ app.post('/puzzles', requireAuth, requireRoot, (req, res) => {
     return res.status(400).send('答案不能为空');
   }
 
-  const insertPuzzle = db.prepare('INSERT INTO puzzles (name, tags, description, answer) VALUES (?, ?, ?, ?)');
-  const puzzleResult = insertPuzzle.run(name.trim(), tags.trim(), description.trim(), answer.trim());
-  const puzzleId = puzzleResult.lastInsertRowid;
+  const insertResult = await db.execute({
+    sql: 'INSERT INTO puzzles (name, tags, description, answer) VALUES (?, ?, ?, ?)',
+    args: [name.trim(), tags.trim(), description.trim(), answer.trim()]
+  });
+  const puzzleId = insertResult.lastInsertRowid;
 
+  // 插入中间答案
   if (Array.isArray(inter_answers) && inter_answers.length > 0) {
-    const insertInter = db.prepare('INSERT INTO intermediate_answers (puzzle_id, answer, info) VALUES (?, ?, ?)');
-    inter_answers.forEach((ans, index) => {
+    for (let i = 0; i < inter_answers.length; i++) {
+      const ans = inter_answers[i];
       if (ans && ans.trim() !== '') {
-        const info = inter_infos[index] || '';
-        insertInter.run(puzzleId, ans.trim(), info.trim());
+        const info = inter_infos[i] || '';
+        await db.execute({
+          sql: 'INSERT INTO intermediate_answers (puzzle_id, answer, info) VALUES (?, ?, ?)',
+          args: [puzzleId, ans.trim(), info.trim()]
+        });
       }
-    });
+    }
   }
 
+  // 插入提示
   if (Array.isArray(hints) && hints.length > 0) {
-    const insertHint = db.prepare('INSERT INTO hints (puzzle_id, hint_text) VALUES (?, ?)');
-    hints.forEach(hint => {
+    for (const hint of hints) {
       if (hint && hint.trim() !== '') {
-        insertHint.run(puzzleId, hint.trim());
+        await db.execute({
+          sql: 'INSERT INTO hints (puzzle_id, hint_text) VALUES (?, ?)',
+          args: [puzzleId, hint.trim()]
+        });
       }
-    });
+    }
   }
 
   res.redirect('/dashboard');
 });
 
-// 删除谜题（仅 root）
-app.post('/puzzles/:id/delete', requireAuth, requireRoot, (req, res) => {
-  db.prepare('DELETE FROM puzzles WHERE id = ?').run(req.params.id);
+// 删除谜题
+app.post('/puzzles/:id/delete', requireAuth, requireRoot, async (req, res) => {
+  await db.execute({
+    sql: 'DELETE FROM puzzles WHERE id = ?',
+    args: [req.params.id]
+  });
   res.redirect('/dashboard');
 });
 
-// 谜题详情页（需要登录）
-app.get('/puzzles/:id', requireAuth, (req, res) => {
-  const puzzle = db.prepare('SELECT * FROM puzzles WHERE id = ?').get(req.params.id);
+// 谜题详情页
+app.get('/puzzles/:id', requireAuth, async (req, res) => {
+  const puzzleResult = await db.execute({
+    sql: 'SELECT * FROM puzzles WHERE id = ?',
+    args: [req.params.id]
+  });
+  const puzzle = puzzleResult.rows[0];
   if (!puzzle) {
     return res.status(404).send('谜题不存在');
   }
-  const intermediateAnswers = db.prepare('SELECT * FROM intermediate_answers WHERE puzzle_id = ?').all(puzzle.id);
-  const hints = db.prepare('SELECT * FROM hints WHERE puzzle_id = ?').all(puzzle.id);
+
+  const interResult = await db.execute({
+    sql: 'SELECT * FROM intermediate_answers WHERE puzzle_id = ?',
+    args: [puzzle.id]
+  });
+  const intermediateAnswers = interResult.rows;
+
+  const hintsResult = await db.execute({
+    sql: 'SELECT * FROM hints WHERE puzzle_id = ?',
+    args: [puzzle.id]
+  });
+  const hints = hintsResult.rows;
 
   const result = req.query.result === 'correct' ? 'correct' :
                  req.query.result === 'incorrect' ? 'incorrect' :
@@ -200,12 +251,17 @@ app.get('/puzzles/:id', requireAuth, (req, res) => {
   res.render('puzzle', { puzzle, intermediateAnswers, hints, result, intermediateInfo, username: req.session.username, isRoot });
 });
 
-// 提交答案（需要登录）
-app.post('/puzzles/:id/answer', requireAuth, (req, res) => {
-  const puzzle = db.prepare('SELECT * FROM puzzles WHERE id = ?').get(req.params.id);
+// 提交答案
+app.post('/puzzles/:id/answer', requireAuth, async (req, res) => {
+  const puzzleResult = await db.execute({
+    sql: 'SELECT * FROM puzzles WHERE id = ?',
+    args: [req.params.id]
+  });
+  const puzzle = puzzleResult.rows[0];
   if (!puzzle) {
     return res.status(404).send('谜题不存在');
   }
+
   const submittedAnswer = req.body.answer ? req.body.answer.trim().toLowerCase() : '';
   const finalAnswer = puzzle.answer.trim().toLowerCase();
 
@@ -213,8 +269,11 @@ app.post('/puzzles/:id/answer', requireAuth, (req, res) => {
     return res.redirect(`/puzzles/${puzzle.id}?result=correct`);
   }
 
-  const intermediateAnswers = db.prepare('SELECT * FROM intermediate_answers WHERE puzzle_id = ?').all(puzzle.id);
-  for (const inter of intermediateAnswers) {
+  const interResult = await db.execute({
+    sql: 'SELECT * FROM intermediate_answers WHERE puzzle_id = ?',
+    args: [puzzle.id]
+  });
+  for (const inter of interResult.rows) {
     if (submittedAnswer === inter.answer.trim().toLowerCase()) {
       const info = inter.info || '';
       const infoParam = encodeURIComponent(info);
@@ -225,23 +284,33 @@ app.post('/puzzles/:id/answer', requireAuth, (req, res) => {
   return res.redirect(`/puzzles/${puzzle.id}?result=incorrect`);
 });
 
-// 用户管理页面（仅 root）
-app.get('/admin/users', requireAuth, requireRoot, (req, res) => {
-  const users = db.prepare('SELECT id, username, email, is_approved, role FROM users ORDER BY id').all();
-  res.render('admin_users', { users, username: req.session.username });
+// 用户管理页面
+app.get('/admin/users', requireAuth, requireRoot, async (req, res) => {
+  const usersResult = await db.execute('SELECT id, username, email, is_approved, role FROM users ORDER BY id');
+  res.render('admin_users', { users: usersResult.rows, username: req.session.username });
 });
 
-// 批准用户（仅 root）
-app.post('/admin/users/:id/approve', requireAuth, requireRoot, (req, res) => {
-  db.prepare('UPDATE users SET is_approved = 1 WHERE id = ?').run(req.params.id);
+// 批准用户
+app.post('/admin/users/:id/approve', requireAuth, requireRoot, async (req, res) => {
+  await db.execute({
+    sql: 'UPDATE users SET is_approved = 1 WHERE id = ?',
+    args: [req.params.id]
+  });
   res.redirect('/admin/users');
 });
 
-// 删除用户（仅 root，不能删除 root 自己）
-app.post('/admin/users/:id/delete', requireAuth, requireRoot, (req, res) => {
-  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.params.id);
+// 删除用户
+app.post('/admin/users/:id/delete', requireAuth, requireRoot, async (req, res) => {
+  const userResult = await db.execute({
+    sql: 'SELECT * FROM users WHERE id = ?',
+    args: [req.params.id]
+  });
+  const user = userResult.rows[0];
   if (user && user.role !== 'root') {
-    db.prepare('DELETE FROM users WHERE id = ?').run(req.params.id);
+    await db.execute({
+      sql: 'DELETE FROM users WHERE id = ?',
+      args: [req.params.id]
+    });
   }
   res.redirect('/admin/users');
 });
