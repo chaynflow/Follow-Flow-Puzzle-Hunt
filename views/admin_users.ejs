@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>用户管理 - Follow-Flow Puzzle Hunt</title>
+  <style>
+    body { font-family: Arial, sans-serif; max-width: 900px; margin: 30px auto; padding: 20px; }
+    .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+    .back-link { color: #007bff; text-decoration: none; }
+    table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+    th, td { padding: 10px; text-align: left; border-bottom: 1px solid #ddd; }
+    th { background: #f8f9fa; }
+    .approved { color: green; font-weight: bold; }
+    .pending { color: orange; font-weight: bold; }
+    .btn-approve { background: #28a745; color: white; border: none; padding: 5px 10px; cursor: pointer; border-radius: 3px; margin-right: 5px; }
+    .btn-delete { background: #dc3545; color: white; border: none; padding: 5px 10px; cursor: pointer; border-radius: 3px; }
+    .role-root { color: #007bff; font-weight: bold; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>用户管理</h1>
+    <a href="/dashboard" class="back-link">&larr; 返回仪表板</a>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>用户名</th>
+        <th>邮箱</th>
+        <th>角色</th>
+        <th>状态</th>
+        <th>操作</th>
+      </tr>
+    </thead>
+    <tbody>
+      <% users.forEach(user => { %>
+        <tr>
+          <td><%= user.id %></td>
+          <td><%= user.username %></td>
+          <td><%= user.email %></td>
+          <td><span class="<%= user.role === 'root' ? 'role-root' : '' %>"><%= user.role %></span></td>
+          <td>
+            <% if (user.is_approved) { %>
+              <span class="approved">已审核</span>
+            <% } else { %>
+              <span class="pending">待审核</span>
+            <% } %>
+          </td>
+          <td>
+            <% if (user.role !== 'root') { %>
+              <% if (!user.is_approved) { %>
+                <form action="/admin/users/<%= user.id %>/approve" method="POST" style="display:inline-block;">
+                  <button type="submit" class="btn-approve">批准</button>
+                </form>
+              <% } %>
+              <form action="/admin/users/<%= user.id %>/delete" method="POST" style="display:inline-block;" onsubmit="return confirm('确定要删除该用户吗？');">
+                <button type="submit" class="btn-delete">删除</button>
+              </form>
+            <% } %>
+          </td>
+        </tr>
+      <% }) %>
+    </tbody>
+  </table>
+</body>
+</html>

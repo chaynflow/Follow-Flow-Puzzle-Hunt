@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>登录 - Follow-Flow Puzzle Hunt</title>
+  <style>
+    body { font-family: Arial, sans-serif; max-width: 400px; margin: 50px auto; padding: 20px; }
+    .error { color: red; margin-bottom: 10px; }
+    .success { color: green; margin-bottom: 10px; }
+    input { width: 100%; padding: 8px; margin: 8px 0; box-sizing: border-box; }
+    button { width: 100%; padding: 10px; background: #007bff; color: white; border: none; cursor: pointer; }
+    a { display: block; text-align: center; margin-top: 10px; }
+  </style>
+</head>
+<body>
+  <h1>登录</h1>
+  <% if (error) { %>
+    <div class="error"><%= error %></div>
+  <% } %>
+  <% if (registered) { %>
+    <div class="success">注册成功，请等待管理员审核后登录。</div>
+  <% } %>
+  <form action="/login" method="POST">
+    <div>
+      <label>用户名</label>
+      <input type="text" name="username" required>
+    </div>
+    <div>
+      <label>密码</label>
+      <input type="password" name="password" required>
+    </div>
+    <button type="submit">登录</button>
+  </form>
+  <a href="/register">没有账号？注册</a>
+</body>
+</html>

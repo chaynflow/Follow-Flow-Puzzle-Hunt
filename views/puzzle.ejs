@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>谜题详情 - Follow-Flow Puzzle Hunt</title>
+  <style>
+    body { font-family: Arial, sans-serif; max-width: 800px; margin: 30px auto; padding: 20px; }
+    .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+    .back-link { color: #007bff; text-decoration: none; }
+    .puzzle-card { background: #f8f9fa; padding: 25px; border-radius: 8px; }
+    .puzzle-title { font-size: 1.5em; font-weight: bold; margin-bottom: 10px; }
+    .answer-form { margin-top: 25px; }
+    .answer-form input { width: 100%; padding: 10px; margin-bottom: 10px; box-sizing: border-box; }
+    .answer-form button { padding: 10px 20px; background: #28a745; color: white; border: none; cursor: pointer; }
+    .result { padding: 12px; margin: 20px 0; border-radius: 5px; font-weight: bold; }
+    .result.correct { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+    .result.incorrect { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+    .result.intermediate { background: #fff3cd; color: #856404; border: 1px solid #ffeeba; }
+    .hint-section { margin: 15px 0; }
+    .hint-item { margin-bottom: 5px; }
+    .hint-content { background: #fff3cd; padding: 10px; border-radius: 5px; margin-top: 5px; display: none; }
+    .hint-toggle-btn { background: #ffc107; color: #212529; border: none; padding: 5px 10px; cursor: pointer; border-radius: 3px; }
+    .admin-answer { background: #e9ecef; padding: 10px; border-radius: 5px; margin-top: 10px; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>谜题详情</h1>
+    <a href="/dashboard" class="back-link">&larr; 返回仪表板</a>
+  </div>
+
+  <div class="puzzle-card">
+    <div class="puzzle-title">
+      <% if (puzzle.tags) { %>
+        【<%= puzzle.tags %>】
+      <% } %>
+      <%= puzzle.name %>
+    </div>
+
+    <% if (puzzle.description) { %>
+      <h3>题面</h3>
+      <p><%= puzzle.description %></p>
+    <% } %>
+
+    <!-- root 显示答案和中间答案 -->
+    <% if (isRoot) { %>
+      <div class="admin-answer">
+        <h3>管理信息（仅 root 可见）</h3>
+        <p><strong>答案：</strong> <%= puzzle.answer %></p>
+        <% if (intermediateAnswers.length > 0) { %>
+          <p><strong>中间答案：</strong></p>
+          <ul>
+            <% intermediateAnswers.forEach(ia => { %>
+              <li><%= ia.answer %> <% if (ia.info) { %> - <%= ia.info %><% } %></li>
+            <% }) %>
+          </ul>
+        <% } %>
+      </div>
+    <% } %>
+
+    <!-- 提示区域（多个提示） -->
+    <% if (hints.length > 0) { %>
+      <div class="hint-section">
+        <h3>提示</h3>
+        <% hints.forEach((hint, index) => { %>
+          <div class="hint-item">
+            <button class="hint-toggle-btn" data-hint-id="hint-<%= hint.id %>">显示提示 <%= index + 1 %></button>
+            <div class="hint-content" id="hint-<%= hint.id %>">
+              <strong>提示 <%= index + 1 %>：</strong> <%= hint.hint_text %>
+            </div>
+          </div>
+        <% }) %>
+      </div>
+    <% } %>
+
+    <!-- 答案提交区 -->
+    <div class="answer-form">
+      <h3>提交你的答案</h3>
+      <% if (result === 'correct') { %>
+        <div class="result correct">✅ 回答正确！</div>
+      <% } else if (result === 'intermediate') { %>
+        <div class="result intermediate">
+          ⚠️ 这是中间答案，不是最终答案，请继续思考！
+          <% if (intermediateInfo) { %>
+            <br><strong>相关信息：</strong> <%= intermediateInfo %>
+          <% } %>
+        </div>
+      <% } else if (result === 'incorrect') { %>
+        <div class="result incorrect">❌ 回答错误，请再试一次。</div>
+      <% } %>
+      <form action="/puzzles/<%= puzzle.id %>/answer" method="POST">
+        <input type="text" name="answer" placeholder="输入答案" required>
+        <button type="submit">提交答案</button>
+      </form>
+    </div>
+  </div>
+
+  <script>
+    // 提示显示/隐藏切换
+    document.querySelectorAll('.hint-toggle-btn').forEach(btn => {
+      btn.addEventListener('click', function() {
+        const hintId = this.getAttribute('data-hint-id');
+        const content = document.getElementById(hintId);
+        if (content.style.display === 'none') {
+          content.style.display = 'block';
+          this.textContent = '隐藏提示';
+        } else {
+          content.style.display = 'none';
+          this.textContent = '显示提示';
+        }
+      });
+    });
+  </script>
+</body>
+</html>
