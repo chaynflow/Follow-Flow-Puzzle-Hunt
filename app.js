@@ -171,9 +171,11 @@ app.post('/puzzles', requireAuth, requireRoot, async (req, res) => {
     description = '',
     answer,
     flavor_text = '',
+    is_visible,
     inter_answers = [],
     inter_infos = [],
-    hints = []
+    hint_titles = [],
+    hint_texts = []
   } = req.body;
 
   if (!name || name.trim() === '') {
@@ -183,35 +185,37 @@ app.post('/puzzles', requireAuth, requireRoot, async (req, res) => {
     return res.status(400).send('答案不能为空');
   }
 
-  const is_visible = req.body.is_visible === 'on' ? 1 : 0;
+  const visibility = is_visible === 'on' ? 1 : 0;
 
   const insertResult = await db.execute({
     sql: 'INSERT INTO puzzles (name, tags, description, answer, flavor_text, is_visible) VALUES (?, ?, ?, ?, ?, ?)',
-    args: [name.trim(), tags.trim(), description.trim(), answer.trim(), flavor_text.trim(), is_visible]
+    args: [name.trim(), tags.trim(), description.trim(), answer.trim(), flavor_text.trim(), visibility]
   });
   const puzzleId = insertResult.lastInsertRowid;
 
-  // 插入中间答案
+  // 插入中间答案（按顺序）
   if (Array.isArray(inter_answers) && inter_answers.length > 0) {
     for (let i = 0; i < inter_answers.length; i++) {
       const ans = inter_answers[i];
       if (ans && ans.trim() !== '') {
         const info = inter_infos[i] || '';
         await db.execute({
-          sql: 'INSERT INTO intermediate_answers (puzzle_id, answer, info) VALUES (?, ?, ?)',
-          args: [puzzleId, ans.trim(), info.trim()]
+          sql: 'INSERT INTO intermediate_answers (puzzle_id, answer, info, sort_order) VALUES (?, ?, ?, ?)',
+          args: [puzzleId, ans.trim(), info.trim(), i]
         });
       }
     }
   }
 
-  // 插入提示
-  if (Array.isArray(hints) && hints.length > 0) {
-    for (const hint of hints) {
-      if (hint && hint.trim() !== '') {
+  // 插入提示（按顺序，包含标题和内容）
+  if (Array.isArray(hint_texts) && hint_texts.length > 0) {
+    for (let i = 0; i < hint_texts.length; i++) {
+      const hintText = hint_texts[i];
+      if (hintText && hintText.trim() !== '') {
+        const hintTitle = (hint_titles[i] || '').trim();
         await db.execute({
-          sql: 'INSERT INTO hints (puzzle_id, hint_text) VALUES (?, ?)',
-          args: [puzzleId, hint.trim()]
+          sql: 'INSERT INTO hints (puzzle_id, title, hint_text, sort_order) VALUES (?, ?, ?, ?)',
+          args: [puzzleId, hintTitle, hintText.trim(), i]
         });
       }
     }
@@ -259,20 +263,19 @@ app.get('/puzzles/:id', requireAuth, async (req, res) => {
     return res.status(404).send('谜题不存在');
   }
 
-  // 检查可见性：非 root 且题目隐藏时禁止访问
   const isRoot = req.session.role === 'root';
   if (!isRoot && puzzle.is_visible !== 1) {
     return res.status(404).send('谜题不存在或已隐藏');
   }
 
   const interResult = await db.execute({
-    sql: 'SELECT * FROM intermediate_answers WHERE puzzle_id = ?',
+    sql: 'SELECT * FROM intermediate_answers WHERE puzzle_id = ? ORDER BY sort_order, id',
     args: [puzzle.id]
   });
   const intermediateAnswers = interResult.rows;
 
   const hintsResult = await db.execute({
-    sql: 'SELECT * FROM hints WHERE puzzle_id = ?',
+    sql: 'SELECT * FROM hints WHERE puzzle_id = ? ORDER BY sort_order, id',
     args: [puzzle.id]
   });
   const hints = hintsResult.rows;
@@ -296,7 +299,6 @@ app.post('/puzzles/:id/answer', requireAuth, async (req, res) => {
     return res.status(404).send('谜题不存在');
   }
 
-  // 同样检查可见性
   const isRoot = req.session.role === 'root';
   if (!isRoot && puzzle.is_visible !== 1) {
     return res.status(404).send('谜题不存在或已隐藏');

@@ -73,9 +73,11 @@
         <h3>提示</h3>
         <% hints.forEach((hint, index) => { %>
           <div class="hint-item">
-            <button class="hint-toggle-btn" data-hint-id="hint-<%= hint.id %>">显示提示 <%= index + 1 %></button>
+            <button class="hint-toggle-btn" data-hint-id="hint-<%= hint.id %>" onclick="return confirmShowHint('<%= hint.title || '提示' %>', '<%= index + 1 %>');">
+              显示提示<%= index + 1 %><% if (hint.title) { %>：<%= hint.title %><% } %>
+            </button>
             <div class="hint-content" id="hint-<%= hint.id %>">
-              <strong>提示 <%= index + 1 %>：</strong> <%= hint.hint_text %>
+              <strong><%= hint.title || '提示' %>：</strong> <%= hint.hint_text %>
             </div>
           </div>
         <% }) %>
@@ -102,9 +104,16 @@
   </div>
 
   <script>
+    // 确认是否显示提示
+    function confirmShowHint(title, number) {
+      const message = `确定要显示提示${number}${title ? '：' + title : ''}吗？`;
+      return confirm(message);
+    }
+
     // 提示显示/隐藏切换
     document.querySelectorAll('.hint-toggle-btn').forEach(btn => {
       btn.addEventListener('click', function() {
+        // 注意：确认逻辑已经在 onclick 中处理，这里只负责切换显示
         const hintId = this.getAttribute('data-hint-id');
         const content = document.getElementById(hintId);
         if (content.style.display === 'none') {

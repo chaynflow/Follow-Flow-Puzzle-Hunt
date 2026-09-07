@@ -81,10 +81,11 @@
 
       <!-- 提示动态区域 -->
       <div>
-        <label>提示（可选，可添加多个）</label>
+        <label>提示（可选，可添加多个，包含标题和内容）</label>
         <div id="hintContainer">
           <div class="hint-row" style="margin-bottom:5px;">
-            <input type="text" name="hints[]" placeholder="提示内容" style="width:80%; display:inline-block;">
+            <input type="text" name="hint_titles[]" placeholder="提示标题（例如：我毫无头绪）" style="width:30%; display:inline-block; margin-right:5px;">
+            <input type="text" name="hint_texts[]" placeholder="提示内容" style="width:55%; display:inline-block;">
             <button type="button" class="remove-hint" style="background:#dc3545; color:white; border:none; padding:5px; cursor:pointer;">删除</button>
           </div>
         </div>
@@ -164,7 +165,8 @@
       row.className = 'hint-row';
       row.style.marginBottom = '5px';
       row.innerHTML = `
-        <input type="text" name="hints[]" placeholder="提示内容" style="width:80%; display:inline-block;">
+        <input type="text" name="hint_titles[]" placeholder="提示标题（例如：我毫无头绪）" style="width:30%; display:inline-block; margin-right:5px;">
+        <input type="text" name="hint_texts[]" placeholder="提示内容" style="width:55%; display:inline-block;">
         <button type="button" class="remove-hint" style="background:#dc3545; color:white; border:none; padding:5px; cursor:pointer;">删除</button>
       `;
       container.appendChild(row);

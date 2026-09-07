@@ -35,7 +35,7 @@ async function initDB() {
     await db.execute("ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'user'");
   }
 
-  // 创建 puzzles 表（新结构，包含 is_visible, flavor_text 列）
+  // 创建 puzzles 表
   await db.execute(`
     CREATE TABLE IF NOT EXISTS puzzles (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -43,8 +43,8 @@ async function initDB() {
       tags TEXT,
       description TEXT,
       answer TEXT NOT NULL,
-      is_visible INTEGER DEFAULT 1,
       flavor_text TEXT,
+      is_visible INTEGER DEFAULT 1,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
   `);
@@ -58,11 +58,11 @@ async function initDB() {
   if (!puzzleColumns.includes('tags')) {
     await db.execute("ALTER TABLE puzzles ADD COLUMN tags TEXT");
   }
-  if (!puzzleColumns.includes('is_visible')) {
-    await db.execute("ALTER TABLE puzzles ADD COLUMN is_visible INTEGER DEFAULT 1");
-  }
   if (!puzzleColumns.includes('flavor_text')) {
     await db.execute("ALTER TABLE puzzles ADD COLUMN flavor_text TEXT");
+  }
+  if (!puzzleColumns.includes('is_visible')) {
+    await db.execute("ALTER TABLE puzzles ADD COLUMN is_visible INTEGER DEFAULT 1");
   }
 
   // 创建中间答案表
@@ -72,19 +72,42 @@ async function initDB() {
       puzzle_id INTEGER NOT NULL,
       answer TEXT NOT NULL,
       info TEXT,
+      sort_order INTEGER DEFAULT 0,
       FOREIGN KEY (puzzle_id) REFERENCES puzzles(id) ON DELETE CASCADE
     )
   `);
 
-  // 创建提示表
+  // 迁移中间答案表：添加 sort_order 列（如果不存在）
+  const interColumnsResult = await db.execute("PRAGMA table_info(intermediate_answers)");
+  const interColumns = interColumnsResult.rows.map(col => col.name);
+  if (!interColumns.includes('sort_order')) {
+    await db.execute("ALTER TABLE intermediate_answers ADD COLUMN sort_order INTEGER DEFAULT 0");
+  }
+  if (!interColumns.includes('info')) {
+    await db.execute("ALTER TABLE intermediate_answers ADD COLUMN info TEXT");
+  }
+
+  // 创建提示表（新结构：包含 title 和 sort_order）
   await db.execute(`
     CREATE TABLE IF NOT EXISTS hints (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       puzzle_id INTEGER NOT NULL,
+      title TEXT,
       hint_text TEXT NOT NULL,
+      sort_order INTEGER DEFAULT 0,
       FOREIGN KEY (puzzle_id) REFERENCES puzzles(id) ON DELETE CASCADE
     )
   `);
+
+  // 迁移 hints 表：添加缺失列
+  const hintColumnsResult = await db.execute("PRAGMA table_info(hints)");
+  const hintColumns = hintColumnsResult.rows.map(col => col.name);
+  if (!hintColumns.includes('title')) {
+    await db.execute("ALTER TABLE hints ADD COLUMN title TEXT");
+  }
+  if (!hintColumns.includes('sort_order')) {
+    await db.execute("ALTER TABLE hints ADD COLUMN sort_order INTEGER DEFAULT 0");
+  }
 
   // 处理 root 用户
   const rootUserResult = await db.execute({
