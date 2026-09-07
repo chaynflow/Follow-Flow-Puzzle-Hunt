@@ -170,6 +170,7 @@ app.post('/puzzles', requireAuth, requireRoot, async (req, res) => {
     tags = '',
     description = '',
     answer,
+    flavor_text = '',
     inter_answers = [],
     inter_infos = [],
     hints = []
@@ -185,8 +186,8 @@ app.post('/puzzles', requireAuth, requireRoot, async (req, res) => {
   const is_visible = req.body.is_visible === 'on' ? 1 : 0;
 
   const insertResult = await db.execute({
-    sql: 'INSERT INTO puzzles (name, tags, description, answer, is_visible) VALUES (?, ?, ?, ?, ?)',
-    args: [name.trim(), tags.trim(), description.trim(), answer.trim(), is_visible]
+    sql: 'INSERT INTO puzzles (name, tags, description, answer, flavor_text, is_visible) VALUES (?, ?, ?, ?, ?, ?)',
+    args: [name.trim(), tags.trim(), description.trim(), answer.trim(), flavor_text.trim(), is_visible]
   });
   const puzzleId = insertResult.lastInsertRowid;
 

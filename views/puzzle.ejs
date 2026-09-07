@@ -10,6 +10,7 @@
     .back-link { color: #007bff; text-decoration: none; }
     .puzzle-card { background: #f8f9fa; padding: 25px; border-radius: 8px; }
     .puzzle-title { font-size: 1.5em; font-weight: bold; margin-bottom: 10px; }
+    .flavor-text { font-style: italic; color: #555; margin: 5px 0; white-space: pre-line; }
     .answer-form { margin-top: 25px; }
     .answer-form input { width: 100%; padding: 10px; margin-bottom: 10px; box-sizing: border-box; }
     .answer-form button { padding: 10px 20px; background: #28a745; color: white; border: none; cursor: pointer; }
@@ -37,6 +38,10 @@
       <% } %>
       <%= puzzle.name %>
     </div>
+
+    <% if (puzzle.flavor_text) { %>
+      <p class="flavor-text"><em><%= puzzle.flavor_text %></em></p>
+    <% } %>
 
     <% if (puzzle.description) { %>
       <h3>题面</h3>

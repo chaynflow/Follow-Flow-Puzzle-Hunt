@@ -35,7 +35,7 @@ async function initDB() {
     await db.execute("ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'user'");
   }
 
-  // 创建 puzzles 表（新结构，包含 is_visible 列）
+  // 创建 puzzles 表（新结构，包含 is_visible, flavor_text 列）
   await db.execute(`
     CREATE TABLE IF NOT EXISTS puzzles (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -44,6 +44,7 @@ async function initDB() {
       description TEXT,
       answer TEXT NOT NULL,
       is_visible INTEGER DEFAULT 1,
+      flavor_text TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
   `);
@@ -59,6 +60,9 @@ async function initDB() {
   }
   if (!puzzleColumns.includes('is_visible')) {
     await db.execute("ALTER TABLE puzzles ADD COLUMN is_visible INTEGER DEFAULT 1");
+  }
+  if (!puzzleColumns.includes('flavor_text')) {
+    await db.execute("ALTER TABLE puzzles ADD COLUMN flavor_text TEXT");
   }
 
   // 创建中间答案表

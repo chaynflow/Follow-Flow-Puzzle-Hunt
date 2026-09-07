@@ -23,6 +23,7 @@
     .item-actions { margin-top: 10px; }
     .puzzle-title { font-size: 1.2em; font-weight: bold; margin-bottom: 5px; }
     .visibility-label { font-size: 0.9em; margin-left: 10px; }
+    .flavor-text { font-style: italic; color: #555; margin: 5px 0; white-space: pre-line; }
   </style>
 </head>
 <body>
@@ -47,6 +48,10 @@
       <div>
         <label>标签（可选，多个用逗号分隔）</label>
         <input type="text" name="tags">
+      </div>
+      <div>
+        <label>风味文本（可选，显示在标题后）</label>
+        <textarea name="flavor_text" rows="2" placeholder="例如：这是谜题的风味文本"></textarea>
       </div>
       <div>
         <label>文字题面</label>
@@ -110,6 +115,9 @@
               </span>
             <% } %>
           </div>
+          <% if (puzzle.flavor_text) { %>
+            <p class="flavor-text"><em><%= puzzle.flavor_text %></em></p>
+          <% } %>
           <% if (puzzle.description) { %>
             <p><strong>题面：</strong> <%= puzzle.description %></p>
           <% } %>
