@@ -11,6 +11,7 @@
     .puzzle-card { background: #f8f9fa; padding: 25px; border-radius: 8px; }
     .puzzle-title { font-size: 1.5em; font-weight: bold; margin-bottom: 10px; }
     .flavor-text { font-style: italic; color: #555; margin: 5px 0; white-space: pre-line; }
+    .description-text { white-space: pre-line; margin: 10px 0; }
     .answer-form { margin-top: 25px; }
     .answer-form input { width: 100%; padding: 10px; margin-bottom: 10px; box-sizing: border-box; }
     .answer-form button { padding: 10px 20px; background: #28a745; color: white; border: none; cursor: pointer; }
@@ -20,9 +21,10 @@
     .result.intermediate { background: #fff3cd; color: #856404; border: 1px solid #ffeeba; }
     .hint-section { margin: 15px 0; }
     .hint-item { margin-bottom: 5px; }
-    .hint-content { background: #fff3cd; padding: 10px; border-radius: 5px; margin-top: 5px; display: none; }
+    .hint-content { background: #fff3cd; padding: 10px; border-radius: 5px; margin-top: 5px; display: none; white-space: pre-line; }
     .hint-toggle-btn { background: #ffc107; color: #212529; border: none; padding: 5px 10px; cursor: pointer; border-radius: 3px; }
     .admin-answer { background: #e9ecef; padding: 10px; border-radius: 5px; margin-top: 10px; }
+    .admin-intermediate { white-space: pre-line; }
   </style>
 </head>
 <body>
@@ -45,7 +47,7 @@
 
     <% if (puzzle.description) { %>
       <h3>题面</h3>
-      <p><%= puzzle.description %></p>
+      <p class="description-text"><%= puzzle.description %></p>
     <% } %>
 
     <!-- root 显示答案和中间答案 -->
@@ -56,7 +58,7 @@
         <p><strong>可见性：</strong> <%= puzzle.is_visible ? '可见' : '隐藏' %></p>
         <% if (intermediateAnswers.length > 0) { %>
           <p><strong>中间答案：</strong></p>
-          <ul>
+          <ul class="admin-intermediate">
             <% intermediateAnswers.forEach(ia => { %>
               <li><%= ia.answer %> <% if (ia.info) { %> - <%= ia.info %><% } %></li>
             <% }) %>
