@@ -73,7 +73,10 @@
         <h3>提示</h3>
         <% hints.forEach((hint, index) => { %>
           <div class="hint-item">
-            <button class="hint-toggle-btn" data-hint-id="hint-<%= hint.id %>" onclick="return confirmShowHint('<%= hint.title || '提示' %>', '<%= index + 1 %>');">
+            <button class="hint-toggle-btn" 
+                    data-hint-id="hint-<%= hint.id %>" 
+                    data-title="<%= hint.title || '' %>" 
+                    data-index="<%= index + 1 %>">
               显示提示<%= index + 1 %><% if (hint.title) { %>：<%= hint.title %><% } %>
             </button>
             <div class="hint-content" id="hint-<%= hint.id %>">
@@ -104,24 +107,30 @@
   </div>
 
   <script>
-    // 确认是否显示提示
-    function confirmShowHint(title, number) {
-      const message = `确定要显示提示${number}${title ? '：' + title : ''}吗？`;
-      return confirm(message);
-    }
-
     // 提示显示/隐藏切换
     document.querySelectorAll('.hint-toggle-btn').forEach(btn => {
       btn.addEventListener('click', function() {
-        // 注意：确认逻辑已经在 onclick 中处理，这里只负责切换显示
         const hintId = this.getAttribute('data-hint-id');
         const content = document.getElementById(hintId);
-        if (content.style.display === 'none') {
+        const title = this.getAttribute('data-title');
+        const index = this.getAttribute('data-index');
+        const isHidden = content.style.display === 'none' || content.style.display === '';
+
+        if (isHidden) {
+          // 显示前确认
+          const confirmMessage = title 
+            ? `确定要显示提示${index}吗？标题：${title}` 
+            : `确定要显示提示${index}吗？`;
+          const userConfirmed = confirm(confirmMessage);
+          if (!userConfirmed) {
+            return; // 用户取消，不显示
+          }
           content.style.display = 'block';
-          this.textContent = '隐藏提示';
+          this.textContent = '隐藏提示' + index;
         } else {
+          // 隐藏时不询问，直接隐藏
           content.style.display = 'none';
-          this.textContent = '显示提示';
+          this.textContent = '显示提示' + index + (title ? '：' + title : '');
         }
       });
     });
