@@ -88,12 +88,9 @@
       <% if (result === 'correct') { %>
         <div class="result correct">✅ 回答正确！</div>
       <% } else if (result === 'intermediate') { %>
-        <div class="result intermediate">
-          ⚠️ 这是中间答案，不是最终答案，请继续思考！
-          <% if (intermediateInfo) { %>
-            <br><strong>相关信息：</strong> <%= intermediateInfo %>
-          <% } %>
-        </div>
+        <% if (intermediateInfo) { %>
+          <div class="result intermediate"><%= intermediateInfo %></div>
+        <% } %>
       <% } else if (result === 'incorrect') { %>
         <div class="result incorrect">❌ 回答错误，请再试一次。</div>
       <% } %>

@@ -23,8 +23,6 @@
     .item-actions { margin-top: 10px; }
     .puzzle-title { font-size: 1.2em; font-weight: bold; margin-bottom: 5px; }
     .visibility-label { font-size: 0.9em; margin-left: 10px; }
-    .flavor-text { font-style: italic; color: #555; margin: 5px 0; white-space: pre-line; }
-    .description-text { white-space: pre-line; }
   </style>
 </head>
 <body>
@@ -116,14 +114,7 @@
               </span>
             <% } %>
           </div>
-          <% if (puzzle.flavor_text) { %>
-            <p class="flavor-text"><em><%= puzzle.flavor_text %></em></p>
-          <% } %>
-          <% if (puzzle.description) { %>
-            <p class="description-text"><%= puzzle.description %></p>
-          <% } %>
           <% if (isRoot) { %>
-            <p><strong>答案：</strong> <%= puzzle.answer %></p>
             <p>
               <strong>中间答案数：</strong> <%= puzzle.inter_count %>
               <strong>提示数：</strong> <%= puzzle.hint_count %>
