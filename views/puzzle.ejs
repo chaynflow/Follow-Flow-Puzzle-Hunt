@@ -48,6 +48,7 @@
       <div class="admin-answer">
         <h3>管理信息（仅 root 可见）</h3>
         <p><strong>答案：</strong> <%= puzzle.answer %></p>
+        <p><strong>可见性：</strong> <%= puzzle.is_visible ? '可见' : '隐藏' %></p>
         <% if (intermediateAnswers.length > 0) { %>
           <p><strong>中间答案：</strong></p>
           <ul>

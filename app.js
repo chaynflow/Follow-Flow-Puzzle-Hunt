@@ -8,7 +8,6 @@ const { db, initDB } = require('./db');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// 中间件
 app.set('view engine', 'ejs');
 app.use(express.urlencoded({ extended: true }));
 app.use(session({
@@ -35,15 +34,13 @@ function requireRoot(req, res, next) {
 
 // 初始化数据库
 initDB()
-  .then(() => {
-    console.log('数据库初始化完成');
-  })
+  .then(() => console.log('数据库初始化完成'))
   .catch(err => {
     console.error('数据库初始化失败:', err);
     process.exit(1);
   });
 
-// 首页路由
+// 首页
 app.get('/', (req, res) => {
   if (req.session.userId) {
     res.redirect('/dashboard');
@@ -70,7 +67,6 @@ app.post('/register', async (req, res) => {
     return res.render('register', { error: '密码长度至少为8位' });
   }
 
-  // 检查用户名
   const userResult = await db.execute({
     sql: 'SELECT * FROM users WHERE username = ?',
     args: [username]
@@ -79,7 +75,6 @@ app.post('/register', async (req, res) => {
     return res.render('register', { error: '用户名已存在' });
   }
 
-  // 检查邮箱
   const emailResult = await db.execute({
     sql: 'SELECT * FROM users WHERE email = ?',
     args: [email]
@@ -145,13 +140,25 @@ app.get('/logout', (req, res) => {
 // 仪表板
 app.get('/dashboard', requireAuth, async (req, res) => {
   const isRoot = req.session.role === 'root';
-  const puzzlesResult = await db.execute(`
-    SELECT p.*,
-           (SELECT COUNT(*) FROM intermediate_answers ia WHERE ia.puzzle_id = p.id) AS inter_count,
-           (SELECT COUNT(*) FROM hints h WHERE h.puzzle_id = p.id) AS hint_count
-    FROM puzzles p
-    ORDER BY p.created_at DESC
-  `);
+  let puzzlesResult;
+  if (isRoot) {
+    puzzlesResult = await db.execute(`
+      SELECT p.*,
+             (SELECT COUNT(*) FROM intermediate_answers ia WHERE ia.puzzle_id = p.id) AS inter_count,
+             (SELECT COUNT(*) FROM hints h WHERE h.puzzle_id = p.id) AS hint_count
+      FROM puzzles p
+      ORDER BY p.created_at DESC
+    `);
+  } else {
+    puzzlesResult = await db.execute(`
+      SELECT p.*,
+             (SELECT COUNT(*) FROM intermediate_answers ia WHERE ia.puzzle_id = p.id) AS inter_count,
+             (SELECT COUNT(*) FROM hints h WHERE h.puzzle_id = p.id) AS hint_count
+      FROM puzzles p
+      WHERE p.is_visible = 1
+      ORDER BY p.created_at DESC
+    `);
+  }
   const puzzles = puzzlesResult.rows;
   res.render('dashboard', { username: req.session.username, puzzles, isRoot, userRole: req.session.role });
 });
@@ -175,9 +182,11 @@ app.post('/puzzles', requireAuth, requireRoot, async (req, res) => {
     return res.status(400).send('答案不能为空');
   }
 
+  const is_visible = req.body.is_visible === 'on' ? 1 : 0;
+
   const insertResult = await db.execute({
-    sql: 'INSERT INTO puzzles (name, tags, description, answer) VALUES (?, ?, ?, ?)',
-    args: [name.trim(), tags.trim(), description.trim(), answer.trim()]
+    sql: 'INSERT INTO puzzles (name, tags, description, answer, is_visible) VALUES (?, ?, ?, ?, ?)',
+    args: [name.trim(), tags.trim(), description.trim(), answer.trim(), is_visible]
   });
   const puzzleId = insertResult.lastInsertRowid;
 
@@ -210,6 +219,25 @@ app.post('/puzzles', requireAuth, requireRoot, async (req, res) => {
   res.redirect('/dashboard');
 });
 
+// 切换题目可见性（仅 root）
+app.post('/puzzles/:id/toggle-visibility', requireAuth, requireRoot, async (req, res) => {
+  const puzzleId = req.params.id;
+  const puzzleResult = await db.execute({
+    sql: 'SELECT is_visible FROM puzzles WHERE id = ?',
+    args: [puzzleId]
+  });
+  if (puzzleResult.rows.length === 0) {
+    return res.status(404).send('谜题不存在');
+  }
+  const current = puzzleResult.rows[0].is_visible;
+  const newVisibility = current ? 0 : 1;
+  await db.execute({
+    sql: 'UPDATE puzzles SET is_visible = ? WHERE id = ?',
+    args: [newVisibility, puzzleId]
+  });
+  res.redirect('/dashboard');
+});
+
 // 删除谜题
 app.post('/puzzles/:id/delete', requireAuth, requireRoot, async (req, res) => {
   await db.execute({
@@ -230,6 +258,12 @@ app.get('/puzzles/:id', requireAuth, async (req, res) => {
     return res.status(404).send('谜题不存在');
   }
 
+  // 检查可见性：非 root 且题目隐藏时禁止访问
+  const isRoot = req.session.role === 'root';
+  if (!isRoot && puzzle.is_visible !== 1) {
+    return res.status(404).send('谜题不存在或已隐藏');
+  }
+
   const interResult = await db.execute({
     sql: 'SELECT * FROM intermediate_answers WHERE puzzle_id = ?',
     args: [puzzle.id]
@@ -247,7 +281,6 @@ app.get('/puzzles/:id', requireAuth, async (req, res) => {
                  req.query.result === 'intermediate' ? 'intermediate' : null;
   const intermediateInfo = req.query.intermediate_info || '';
 
-  const isRoot = req.session.role === 'root';
   res.render('puzzle', { puzzle, intermediateAnswers, hints, result, intermediateInfo, username: req.session.username, isRoot });
 });
 
@@ -260,6 +293,12 @@ app.post('/puzzles/:id/answer', requireAuth, async (req, res) => {
   const puzzle = puzzleResult.rows[0];
   if (!puzzle) {
     return res.status(404).send('谜题不存在');
+  }
+
+  // 同样检查可见性
+  const isRoot = req.session.role === 'root';
+  if (!isRoot && puzzle.is_visible !== 1) {
+    return res.status(404).send('谜题不存在或已隐藏');
   }
 
   const submittedAnswer = req.body.answer ? req.body.answer.trim().toLowerCase() : '';
@@ -315,7 +354,6 @@ app.post('/admin/users/:id/delete', requireAuth, requireRoot, async (req, res) =
   res.redirect('/admin/users');
 });
 
-// 启动服务器
 app.listen(PORT, () => {
   console.log(`服务器运行在 http://localhost:${PORT}`);
 });

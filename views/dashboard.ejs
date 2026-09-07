@@ -16,10 +16,13 @@
     .puzzle-item { background: #f1f1f1; padding: 15px; margin-bottom: 10px; border-radius: 5px; }
     .detail-link { display: inline-block; margin-top: 8px; color: #007bff; text-decoration: none; }
     .delete-form { display: inline-block; margin-left: 10px; }
-    .delete-form button { background: #dc3545; color: white; border: none; padding: 5px 10px; cursor: pointer; border-radius: 3px; }
+    .toggle-form { display: inline-block; margin-left: 10px; }
+    .delete-form button, .toggle-form button { background: #dc3545; color: white; border: none; padding: 5px 10px; cursor: pointer; border-radius: 3px; }
+    .toggle-form button { background: #ffc107; color: #212529; }
     .badge { background: #6c757d; color: white; padding: 2px 8px; border-radius: 10px; font-size: 0.8em; margin-left: 5px; }
     .item-actions { margin-top: 10px; }
     .puzzle-title { font-size: 1.2em; font-weight: bold; margin-bottom: 5px; }
+    .visibility-label { font-size: 0.9em; margin-left: 10px; }
   </style>
 </head>
 <body>
@@ -39,19 +42,24 @@
     <form action="/puzzles" method="POST" id="puzzleForm">
       <div>
         <label>题目名称（必填）</label>
-        <input type="text" name="name" placeholder="例如：谜题一" required>
+        <input type="text" name="name" required>
       </div>
       <div>
         <label>标签（可选，多个用逗号分隔）</label>
-        <input type="text" name="tags" placeholder="例如：数学,逻辑">
+        <input type="text" name="tags">
       </div>
       <div>
         <label>文字题面</label>
-        <textarea name="description" rows="3" placeholder="谜题描述..."></textarea>
+        <textarea name="description" rows="3"></textarea>
       </div>
       <div>
         <label>答案（必填）</label>
         <input type="text" name="answer" required>
+      </div>
+      <div>
+        <label>
+          <input type="checkbox" name="is_visible" checked> 可见（普通用户可以看到）
+        </label>
       </div>
 
       <!-- 中间答案动态区域 -->
@@ -86,7 +94,7 @@
 
   <h2>所有谜题</h2>
   <% if (puzzles.length === 0) { %>
-    <p>暂无谜题，请添加。</p>
+    <p>暂无谜题。</p>
   <% } else { %>
     <ul class="puzzle-list">
       <% puzzles.forEach(puzzle => { %>
@@ -96,6 +104,11 @@
               【<%= puzzle.tags %>】
             <% } %>
             <%= puzzle.name %>
+            <% if (isRoot) { %>
+              <span class="visibility-label">
+                [<%= puzzle.is_visible ? '可见' : '隐藏' %>]
+              </span>
+            <% } %>
           </div>
           <% if (puzzle.description) { %>
             <p><strong>题面：</strong> <%= puzzle.description %></p>
@@ -109,6 +122,9 @@
             <small>创建时间：<%= puzzle.created_at %></small>
             <div class="item-actions">
               <a href="/puzzles/<%= puzzle.id %>" class="detail-link">查看详情</a>
+              <form action="/puzzles/<%= puzzle.id %>/toggle-visibility" method="POST" class="toggle-form" onsubmit="return confirm('确定要切换该题目的可见性吗？');">
+                <button type="submit"><%= puzzle.is_visible ? '隐藏' : '显示' %></button>
+              </form>
               <form action="/puzzles/<%= puzzle.id %>/delete" method="POST" class="delete-form" onsubmit="return confirm('确定要删除这个谜题吗？此操作不可逆。');">
                 <button type="submit">删除谜题</button>
               </form>

@@ -21,7 +21,7 @@ async function initDB() {
     )
   `);
 
-  // 迁移：确保列存在
+  // 迁移：确保 users 表列存在
   const userColumnsResult = await db.execute("PRAGMA table_info(users)");
   const userColumns = userColumnsResult.rows.map(col => col.name);
   if (!userColumns.includes('email')) {
@@ -35,7 +35,7 @@ async function initDB() {
     await db.execute("ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'user'");
   }
 
-  // 创建 puzzles 表
+  // 创建 puzzles 表（新结构，包含 is_visible 列）
   await db.execute(`
     CREATE TABLE IF NOT EXISTS puzzles (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -43,10 +43,12 @@ async function initDB() {
       tags TEXT,
       description TEXT,
       answer TEXT NOT NULL,
+      is_visible INTEGER DEFAULT 1,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
   `);
 
+  // 迁移 puzzles 表
   const puzzleColumnsResult = await db.execute("PRAGMA table_info(puzzles)");
   const puzzleColumns = puzzleColumnsResult.rows.map(col => col.name);
   if (!puzzleColumns.includes('name')) {
@@ -54,6 +56,9 @@ async function initDB() {
   }
   if (!puzzleColumns.includes('tags')) {
     await db.execute("ALTER TABLE puzzles ADD COLUMN tags TEXT");
+  }
+  if (!puzzleColumns.includes('is_visible')) {
+    await db.execute("ALTER TABLE puzzles ADD COLUMN is_visible INTEGER DEFAULT 1");
   }
 
   // 创建中间答案表
@@ -84,7 +89,6 @@ async function initDB() {
   });
   const rootUser = rootUserResult.rows[0];
   if (!rootUser) {
-    // 优先使用环境变量中的密码，否则用默认的（生产环境必须设置）
     const rootPassword = process.env.ROOT_PASSWORD || 'Jzia#92*kzxp';
     const saltRounds = 10;
     const passwordHash = bcrypt.hashSync(rootPassword, saltRounds);
@@ -94,9 +98,7 @@ async function initDB() {
     });
     console.log('已创建 root 账号');
   } else {
-    // 如果密码仍是旧默认值，更新为新密码（可选）
-    const oldPasswordHash = rootUser.password_hash;
-    if (bcrypt.compareSync('root123', oldPasswordHash) || bcrypt.compareSync('Jzia#92*kzxp', oldPasswordHash)) {
+    if (bcrypt.compareSync('root123', rootUser.password_hash) || bcrypt.compareSync('Jzia#92*kzxp', rootUser.password_hash)) {
       const newRootPassword = process.env.ROOT_PASSWORD || 'Jzia#92*kzxp';
       const saltRounds = 10;
       const newPasswordHash = bcrypt.hashSync(newRootPassword, saltRounds);
