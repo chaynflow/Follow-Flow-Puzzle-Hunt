@@ -21,7 +21,7 @@ async function initDB() {
     )
   `);
 
-  // 迁移：确保 users 表列存在
+  // 确保 users 表列存在
   const userColumnsResult = await db.execute("PRAGMA table_info(users)");
   const userColumns = userColumnsResult.rows.map(col => col.name);
   if (!userColumns.includes('email')) {
@@ -34,6 +34,10 @@ async function initDB() {
   if (!userColumns.includes('role')) {
     await db.execute("ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'user'");
   }
+
+  // 确保 role 值规范
+  await db.execute("UPDATE users SET role = 'user' WHERE role IS NULL");
+  await db.execute("UPDATE users SET role = 'root' WHERE username = 'root'");
 
   // 创建 puzzles 表
   await db.execute(`
@@ -49,7 +53,6 @@ async function initDB() {
     )
   `);
 
-  // 迁移 puzzles 表
   const puzzleColumnsResult = await db.execute("PRAGMA table_info(puzzles)");
   const puzzleColumns = puzzleColumnsResult.rows.map(col => col.name);
   if (!puzzleColumns.includes('name')) {
@@ -77,7 +80,6 @@ async function initDB() {
     )
   `);
 
-  // 迁移中间答案表：添加 sort_order 列（如果不存在）
   const interColumnsResult = await db.execute("PRAGMA table_info(intermediate_answers)");
   const interColumns = interColumnsResult.rows.map(col => col.name);
   if (!interColumns.includes('sort_order')) {
@@ -87,7 +89,7 @@ async function initDB() {
     await db.execute("ALTER TABLE intermediate_answers ADD COLUMN info TEXT");
   }
 
-  // 创建提示表（新结构：包含 title 和 sort_order）
+  // 创建提示表
   await db.execute(`
     CREATE TABLE IF NOT EXISTS hints (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -99,7 +101,6 @@ async function initDB() {
     )
   `);
 
-  // 迁移 hints 表：添加缺失列
   const hintColumnsResult = await db.execute("PRAGMA table_info(hints)");
   const hintColumns = hintColumnsResult.rows.map(col => col.name);
   if (!hintColumns.includes('title')) {

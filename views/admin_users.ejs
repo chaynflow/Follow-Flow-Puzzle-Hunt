@@ -14,8 +14,12 @@
     .approved { color: green; font-weight: bold; }
     .pending { color: orange; font-weight: bold; }
     .btn-approve { background: #28a745; color: white; border: none; padding: 5px 10px; cursor: pointer; border-radius: 3px; margin-right: 5px; }
-    .btn-delete { background: #dc3545; color: white; border: none; padding: 5px 10px; cursor: pointer; border-radius: 3px; }
+    .btn-delete { background: #dc3545; color: white; border: none; padding: 5px 10px; cursor: pointer; border-radius: 3px; margin-right: 5px; }
+    .btn-promote { background: #007bff; color: white; border: none; padding: 5px 10px; cursor: pointer; border-radius: 3px; margin-right: 5px; }
+    .btn-demote { background: #6c757d; color: white; border: none; padding: 5px 10px; cursor: pointer; border-radius: 3px; margin-right: 5px; }
     .role-root { color: #007bff; font-weight: bold; }
+    .role-admin { color: #17a2b8; font-weight: bold; }
+    .role-user { color: #6c757d; }
   </style>
 </head>
 <body>
@@ -41,7 +45,15 @@
           <td><%= user.id %></td>
           <td><%= user.username %></td>
           <td><%= user.email %></td>
-          <td><span class="<%= user.role === 'root' ? 'role-root' : '' %>"><%= user.role %></span></td>
+          <td>
+            <% if (user.role === 'root') { %>
+              <span class="role-root">root</span>
+            <% } else if (user.role === 'admin') { %>
+              <span class="role-admin">admin</span>
+            <% } else { %>
+              <span class="role-user">user</span>
+            <% } %>
+          </td>
           <td>
             <% if (user.is_approved) { %>
               <span class="approved">已审核</span>
@@ -56,9 +68,29 @@
                   <button type="submit" class="btn-approve">批准</button>
                 </form>
               <% } %>
-              <form action="/admin/users/<%= user.id %>/delete" method="POST" style="display:inline-block;" onsubmit="return confirm('确定要删除该用户吗？');">
-                <button type="submit" class="btn-delete">删除</button>
-              </form>
+              <% if (currentUserRole === 'root') { %>
+                <% if (user.role === 'user') { %>
+                  <form action="/admin/users/<%= user.id %>/set-admin" method="POST" style="display:inline-block;">
+                    <input type="hidden" name="action" value="promote">
+                    <button type="submit" class="btn-promote">设为管理员</button>
+                  </form>
+                <% } else if (user.role === 'admin') { %>
+                  <form action="/admin/users/<%= user.id %>/set-admin" method="POST" style="display:inline-block;">
+                    <input type="hidden" name="action" value="demote">
+                    <button type="submit" class="btn-demote">取消管理员</button>
+                  </form>
+                <% } %>
+              <% } %>
+              <% 
+                // 删除按钮：root 可删除非 root 用户，admin 只能删除 user
+                const canDelete = (currentUserRole === 'root' && user.role !== 'root') || 
+                                  (currentUserRole === 'admin' && user.role === 'user');
+              %>
+              <% if (canDelete) { %>
+                <form action="/admin/users/<%= user.id %>/delete" method="POST" style="display:inline-block;" onsubmit="return confirm('确定要删除该用户吗？');">
+                  <button type="submit" class="btn-delete">删除</button>
+                </form>
+              <% } %>
             <% } %>
           </td>
         </tr>

@@ -50,10 +50,10 @@
       <p class="description-text"><%= puzzle.description %></p>
     <% } %>
 
-    <!-- root 显示答案和中间答案 -->
-    <% if (isRoot) { %>
+    <!-- 管理信息（staff 可见） -->
+    <% if (isStaff) { %>
       <div class="admin-answer">
-        <h3>管理信息（仅 root 可见）</h3>
+        <h3>管理信息（仅 staff 可见）</h3>
         <p><strong>答案：</strong> <%= puzzle.answer %></p>
         <p><strong>可见性：</strong> <%= puzzle.is_visible ? '可见' : '隐藏' %></p>
         <% if (intermediateAnswers.length > 0) { %>
@@ -67,7 +67,7 @@
       </div>
     <% } %>
 
-    <!-- 提示区域（多个提示） -->
+    <!-- 提示区域 -->
     <% if (hints.length > 0) { %>
       <div class="hint-section">
         <h3>提示</h3>
@@ -117,18 +117,16 @@
         const isHidden = content.style.display === 'none' || content.style.display === '';
 
         if (isHidden) {
-          // 显示前确认
           const confirmMessage = title 
             ? `确定要显示提示${index}吗？标题：${title}` 
             : `确定要显示提示${index}吗？`;
           const userConfirmed = confirm(confirmMessage);
           if (!userConfirmed) {
-            return; // 用户取消，不显示
+            return;
           }
           content.style.display = 'block';
           this.textContent = '隐藏提示' + index;
         } else {
-          // 隐藏时不询问，直接隐藏
           content.style.display = 'none';
           this.textContent = '显示提示' + index + (title ? '：' + title : '');
         }

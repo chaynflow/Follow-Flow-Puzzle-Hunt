@@ -25,6 +25,15 @@ function requireAuth(req, res, next) {
   res.redirect('/login');
 }
 
+// 管理员权限中间件（root 或 admin）
+function requireStaff(req, res, next) {
+  if (req.session && (req.session.role === 'root' || req.session.role === 'admin')) {
+    return next();
+  }
+  res.status(403).send('无权限访问');
+}
+
+// 仅 root 权限中间件
 function requireRoot(req, res, next) {
   if (req.session && req.session.role === 'root') {
     return next();
@@ -140,8 +149,10 @@ app.get('/logout', (req, res) => {
 // 仪表板
 app.get('/dashboard', requireAuth, async (req, res) => {
   const isRoot = req.session.role === 'root';
+  const isAdmin = req.session.role === 'admin';
+  const isStaff = isRoot || isAdmin;
   let puzzlesResult;
-  if (isRoot) {
+  if (isStaff) {
     puzzlesResult = await db.execute(`
       SELECT p.*,
              (SELECT COUNT(*) FROM intermediate_answers ia WHERE ia.puzzle_id = p.id) AS inter_count,
@@ -160,11 +171,18 @@ app.get('/dashboard', requireAuth, async (req, res) => {
     `);
   }
   const puzzles = puzzlesResult.rows;
-  res.render('dashboard', { username: req.session.username, puzzles, isRoot, userRole: req.session.role });
+  res.render('dashboard', { 
+    username: req.session.username, 
+    puzzles, 
+    isRoot, 
+    isAdmin, 
+    isStaff,
+    userRole: req.session.role 
+  });
 });
 
-// 添加谜题
-app.post('/puzzles', requireAuth, requireRoot, async (req, res) => {
+// 添加谜题（staff）
+app.post('/puzzles', requireAuth, requireStaff, async (req, res) => {
   const {
     name = '',
     tags = '',
@@ -193,7 +211,6 @@ app.post('/puzzles', requireAuth, requireRoot, async (req, res) => {
   });
   const puzzleId = insertResult.lastInsertRowid;
 
-  // 插入中间答案（按顺序）
   if (Array.isArray(inter_answers) && inter_answers.length > 0) {
     for (let i = 0; i < inter_answers.length; i++) {
       const ans = inter_answers[i];
@@ -207,7 +224,6 @@ app.post('/puzzles', requireAuth, requireRoot, async (req, res) => {
     }
   }
 
-  // 插入提示（按顺序，包含标题和内容）
   if (Array.isArray(hint_texts) && hint_texts.length > 0) {
     for (let i = 0; i < hint_texts.length; i++) {
       const hintText = hint_texts[i];
@@ -224,8 +240,8 @@ app.post('/puzzles', requireAuth, requireRoot, async (req, res) => {
   res.redirect('/dashboard');
 });
 
-// 切换题目可见性（仅 root）
-app.post('/puzzles/:id/toggle-visibility', requireAuth, requireRoot, async (req, res) => {
+// 切换题目可见性（staff）
+app.post('/puzzles/:id/toggle-visibility', requireAuth, requireStaff, async (req, res) => {
   const puzzleId = req.params.id;
   const puzzleResult = await db.execute({
     sql: 'SELECT is_visible FROM puzzles WHERE id = ?',
@@ -243,8 +259,8 @@ app.post('/puzzles/:id/toggle-visibility', requireAuth, requireRoot, async (req,
   res.redirect('/dashboard');
 });
 
-// 删除谜题
-app.post('/puzzles/:id/delete', requireAuth, requireRoot, async (req, res) => {
+// 删除谜题（staff）
+app.post('/puzzles/:id/delete', requireAuth, requireStaff, async (req, res) => {
   await db.execute({
     sql: 'DELETE FROM puzzles WHERE id = ?',
     args: [req.params.id]
@@ -264,7 +280,9 @@ app.get('/puzzles/:id', requireAuth, async (req, res) => {
   }
 
   const isRoot = req.session.role === 'root';
-  if (!isRoot && puzzle.is_visible !== 1) {
+  const isAdmin = req.session.role === 'admin';
+  const isStaff = isRoot || isAdmin;
+  if (!isStaff && puzzle.is_visible !== 1) {
     return res.status(404).send('谜题不存在或已隐藏');
   }
 
@@ -285,7 +303,17 @@ app.get('/puzzles/:id', requireAuth, async (req, res) => {
                  req.query.result === 'intermediate' ? 'intermediate' : null;
   const intermediateInfo = req.query.intermediate_info || '';
 
-  res.render('puzzle', { puzzle, intermediateAnswers, hints, result, intermediateInfo, username: req.session.username, isRoot });
+  res.render('puzzle', { 
+    puzzle, 
+    intermediateAnswers, 
+    hints, 
+    result, 
+    intermediateInfo, 
+    username: req.session.username, 
+    isRoot, 
+    isAdmin, 
+    isStaff 
+  });
 });
 
 // 提交答案
@@ -300,7 +328,9 @@ app.post('/puzzles/:id/answer', requireAuth, async (req, res) => {
   }
 
   const isRoot = req.session.role === 'root';
-  if (!isRoot && puzzle.is_visible !== 1) {
+  const isAdmin = req.session.role === 'admin';
+  const isStaff = isRoot || isAdmin;
+  if (!isStaff && puzzle.is_visible !== 1) {
     return res.status(404).send('谜题不存在或已隐藏');
   }
 
@@ -326,32 +356,93 @@ app.post('/puzzles/:id/answer', requireAuth, async (req, res) => {
   return res.redirect(`/puzzles/${puzzle.id}?result=incorrect`);
 });
 
-// 用户管理页面
-app.get('/admin/users', requireAuth, requireRoot, async (req, res) => {
+// 用户管理页面（staff）
+app.get('/admin/users', requireAuth, requireStaff, async (req, res) => {
   const usersResult = await db.execute('SELECT id, username, email, is_approved, role FROM users ORDER BY id');
-  res.render('admin_users', { users: usersResult.rows, username: req.session.username });
+  res.render('admin_users', { 
+    users: usersResult.rows, 
+    username: req.session.username,
+    currentUserRole: req.session.role
+  });
 });
 
-// 批准用户
-app.post('/admin/users/:id/approve', requireAuth, requireRoot, async (req, res) => {
+// 批准用户（staff）
+app.post('/admin/users/:id/approve', requireAuth, requireStaff, async (req, res) => {
+  const userId = req.params.id;
+  const userResult = await db.execute({
+    sql: 'SELECT * FROM users WHERE id = ?',
+    args: [userId]
+  });
+  const user = userResult.rows[0];
+  if (!user) {
+    return res.status(404).send('用户不存在');
+  }
+  // 不允许批准 root 自己（root 应该已批准），但批准普通用户或 admin 均可
+  if (user.role === 'root') {
+    return res.redirect('/admin/users');
+  }
   await db.execute({
     sql: 'UPDATE users SET is_approved = 1 WHERE id = ?',
-    args: [req.params.id]
+    args: [userId]
   });
   res.redirect('/admin/users');
 });
 
-// 删除用户
-app.post('/admin/users/:id/delete', requireAuth, requireRoot, async (req, res) => {
+// 删除用户（staff，但有角色限制）
+app.post('/admin/users/:id/delete', requireAuth, requireStaff, async (req, res) => {
+  const userId = req.params.id;
   const userResult = await db.execute({
     sql: 'SELECT * FROM users WHERE id = ?',
-    args: [req.params.id]
+    args: [userId]
   });
   const user = userResult.rows[0];
-  if (user && user.role !== 'root') {
+  if (!user) {
+    return res.status(404).send('用户不存在');
+  }
+  // root 可以删除除 root 外的任何用户
+  if (req.session.role === 'root') {
+    if (user.role !== 'root') {
+      await db.execute({
+        sql: 'DELETE FROM users WHERE id = ?',
+        args: [userId]
+      });
+    }
+  } else {
+    // admin 只能删除 role 为 'user' 的用户
+    if (user.role === 'user') {
+      await db.execute({
+        sql: 'DELETE FROM users WHERE id = ?',
+        args: [userId]
+      });
+    }
+  }
+  res.redirect('/admin/users');
+});
+
+// 设置/取消管理员（仅 root）
+app.post('/admin/users/:id/set-admin', requireAuth, requireRoot, async (req, res) => {
+  const userId = req.params.id;
+  const { action } = req.body; // 'promote' or 'demote'
+  const userResult = await db.execute({
+    sql: 'SELECT * FROM users WHERE id = ?',
+    args: [userId]
+  });
+  const user = userResult.rows[0];
+  if (!user) {
+    return res.status(404).send('用户不存在');
+  }
+  if (user.role === 'root') {
+    return res.redirect('/admin/users');
+  }
+  if (action === 'promote') {
     await db.execute({
-      sql: 'DELETE FROM users WHERE id = ?',
-      args: [req.params.id]
+      sql: 'UPDATE users SET role = ? WHERE id = ?',
+      args: ['admin', userId]
+    });
+  } else if (action === 'demote') {
+    await db.execute({
+      sql: 'UPDATE users SET role = ? WHERE id = ?',
+      args: ['user', userId]
     });
   }
   res.redirect('/admin/users');

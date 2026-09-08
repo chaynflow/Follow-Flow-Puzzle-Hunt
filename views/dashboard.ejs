@@ -19,7 +19,6 @@
     .toggle-form { display: inline-block; margin-left: 10px; }
     .delete-form button, .toggle-form button { background: #dc3545; color: white; border: none; padding: 5px 10px; cursor: pointer; border-radius: 3px; }
     .toggle-form button { background: #ffc107; color: #212529; }
-    .badge { background: #6c757d; color: white; padding: 2px 8px; border-radius: 10px; font-size: 0.8em; margin-left: 5px; }
     .item-actions { margin-top: 10px; }
     .puzzle-title { font-size: 1.2em; font-weight: bold; margin-bottom: 5px; }
     .visibility-label { font-size: 0.9em; margin-left: 10px; }
@@ -29,14 +28,14 @@
   <div class="header">
     <h1>欢迎, <%= username %>!</h1>
     <div>
-      <% if (isRoot) { %>
+      <% if (isStaff) { %>
         <a href="/admin/users" class="admin-link">用户管理</a>
       <% } %>
       <a href="/logout" class="logout">登出</a>
     </div>
   </div>
 
-  <% if (isRoot) { %>
+  <% if (isStaff) { %>
   <div class="puzzle-form">
     <h2>添加新谜题</h2>
     <form action="/puzzles" method="POST" id="puzzleForm">
@@ -84,7 +83,7 @@
         <label>提示（可选，可添加多个，包含标题和内容）</label>
         <div id="hintContainer">
           <div class="hint-row" style="margin-bottom:5px;">
-            <input type="text" name="hint_titles[]" placeholder="提示标题（例如：我毫无头绪）" style="width:30%; display:inline-block; margin-right:5px;">
+            <input type="text" name="hint_titles[]" placeholder="提示标题" style="width:30%; display:inline-block; margin-right:5px;">
             <input type="text" name="hint_texts[]" placeholder="提示内容" style="width:55%; display:inline-block;">
             <button type="button" class="remove-hint" style="background:#dc3545; color:white; border:none; padding:5px; cursor:pointer;">删除</button>
           </div>
@@ -109,13 +108,13 @@
               【<%= puzzle.tags %>】
             <% } %>
             <%= puzzle.name %>
-            <% if (isRoot) { %>
+            <% if (isStaff) { %>
               <span class="visibility-label">
                 [<%= puzzle.is_visible ? '可见' : '隐藏' %>]
               </span>
             <% } %>
           </div>
-          <% if (isRoot) { %>
+          <% if (isStaff) { %>
             <p>
               <strong>中间答案数：</strong> <%= puzzle.inter_count %>
               <strong>提示数：</strong> <%= puzzle.hint_count %>
@@ -141,7 +140,7 @@
     </ul>
   <% } %>
 
-  <% if (isRoot) { %>
+  <% if (isStaff) { %>
   <script>
     // 动态添加中间答案行
     document.getElementById('addIntermediate').addEventListener('click', function() {
@@ -165,7 +164,7 @@
       row.className = 'hint-row';
       row.style.marginBottom = '5px';
       row.innerHTML = `
-        <input type="text" name="hint_titles[]" placeholder="提示标题（例如：我毫无头绪）" style="width:30%; display:inline-block; margin-right:5px;">
+        <input type="text" name="hint_titles[]" placeholder="提示标题" style="width:30%; display:inline-block; margin-right:5px;">
         <input type="text" name="hint_texts[]" placeholder="提示内容" style="width:55%; display:inline-block;">
         <button type="button" class="remove-hint" style="background:#dc3545; color:white; border:none; padding:5px; cursor:pointer;">删除</button>
       `;
