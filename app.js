@@ -8,7 +8,7 @@ const { db, initDB } = require('./db');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Helper: HTML 转义
+// 辅助：HTML 转义
 function escapeHtml(str) {
   return str.replace(/&/g, '&amp;')
             .replace(/</g, '&lt;')
@@ -17,7 +17,7 @@ function escapeHtml(str) {
             .replace(/'/g, '&#39;');
 }
 
-// Helper: Markdown 图片渲染
+// 辅助：将 Markdown 图片语法转为 <img>，其余转义
 function renderMarkdownImages(text) {
   if (!text) return '';
   const parts = [];
@@ -59,7 +59,8 @@ function requireAuth(req, res, next) {
 }
 
 function requireStaff(req, res, next) {
-  if (req.session && (req.session.role === 'root' || req.session.role === 'admin')) {
+  const role = req.session && req.session.role;
+  if (role === 'root' || role === 'admin') {
     return next();
   }
   res.status(403).send('无权限访问');
@@ -72,7 +73,7 @@ function requireRoot(req, res, next) {
   res.status(403).send('无权限访问');
 }
 
-// 检查用户是否可以查看某题目（考虑比赛隐藏题目的特殊情况）
+// 检查 user 是否可以查看某题目（考虑比赛隐藏题目的特殊情况）
 async function canUserViewPuzzle(userId, role, puzzleId) {
   if (role === 'root' || role === 'admin') {
     return true;
@@ -322,10 +323,7 @@ app.post('/contests', requireAuth, requireStaff, async (req, res) => {
     return res.status(400).send('比赛名称、开始时间和结束时间不能为空');
   }
 
-  let puzzleIds = Array.isArray(puzzle_ids) ? puzzle_ids : [];
-  if (typeof puzzle_ids === 'string') {
-    puzzleIds = [puzzle_ids];
-  }
+  let puzzleIds = Array.isArray(puzzle_ids) ? puzzle_ids : (typeof puzzle_ids === 'string' ? [puzzle_ids] : []);
   console.log('创建比赛 puzzleIds:', puzzleIds);
 
   const insertResult = await db.execute({
@@ -335,33 +333,30 @@ app.post('/contests', requireAuth, requireStaff, async (req, res) => {
   const contestId = insertResult.lastInsertRowid;
 
   for (const puzzleId of puzzleIds) {
-    const numericPuzzleId = parseInt(puzzleId, 10);
-    if (isNaN(numericPuzzleId)) continue;
-    await db.execute({
-      sql: 'INSERT OR IGNORE INTO contest_puzzles (contest_id, puzzle_id) VALUES (?, ?)',
-      args: [contestId, numericPuzzleId]
-    });
+    const numeric = parseInt(puzzleId, 10);
+    if (!isNaN(numeric)) {
+      await db.execute({
+        sql: 'INSERT OR IGNORE INTO contest_puzzles (contest_id, puzzle_id) VALUES (?, ?)',
+        args: [contestId, numeric]
+      });
+    }
   }
 
   res.redirect('/contests');
 });
 
-// 显示编辑比赛表单（必须放在详情路由之前）
+// 显示编辑比赛表单
 app.get('/contests/:id/edit', requireAuth, requireStaff, async (req, res) => {
   try {
     const contestId = parseInt(req.params.id, 10);
-    if (isNaN(contestId)) {
-      return res.status(400).send('无效的比赛ID');
-    }
+    if (isNaN(contestId)) return res.status(400).send('无效的比赛ID');
 
     const contestResult = await db.execute({
       sql: 'SELECT * FROM contests WHERE id = ?',
       args: [contestId]
     });
     const contest = contestResult.rows[0];
-    if (!contest) {
-      return res.status(404).send('比赛不存在');
-    }
+    if (!contest) return res.status(404).send('比赛不存在');
 
     const selectedResult = await db.execute({
       sql: 'SELECT puzzle_id FROM contest_puzzles WHERE contest_id = ?',
@@ -386,19 +381,14 @@ app.get('/contests/:id/edit', requireAuth, requireStaff, async (req, res) => {
 // 处理编辑比赛
 app.post('/contests/:id/edit', requireAuth, requireStaff, async (req, res) => {
   const contestId = parseInt(req.params.id, 10);
-  if (isNaN(contestId)) {
-    return res.status(400).send('无效的比赛ID');
-  }
+  if (isNaN(contestId)) return res.status(400).send('无效的比赛ID');
 
   const { name, description, start_time, end_time, puzzle_ids } = req.body;
   if (!name || !start_time || !end_time) {
     return res.status(400).send('比赛名称、开始时间和结束时间不能为空');
   }
 
-  let puzzleIds = Array.isArray(puzzle_ids) ? puzzle_ids : [];
-  if (typeof puzzle_ids === 'string') {
-    puzzleIds = [puzzle_ids];
-  }
+  let puzzleIds = Array.isArray(puzzle_ids) ? puzzle_ids : (typeof puzzle_ids === 'string' ? [puzzle_ids] : []);
 
   await db.execute({
     sql: 'UPDATE contests SET name = ?, description = ?, start_time = ?, end_time = ? WHERE id = ?',
@@ -411,12 +401,13 @@ app.post('/contests/:id/edit', requireAuth, requireStaff, async (req, res) => {
   });
 
   for (const puzzleId of puzzleIds) {
-    const numericPuzzleId = parseInt(puzzleId, 10);
-    if (isNaN(numericPuzzleId)) continue;
-    await db.execute({
-      sql: 'INSERT OR IGNORE INTO contest_puzzles (contest_id, puzzle_id) VALUES (?, ?)',
-      args: [contestId, numericPuzzleId]
-    });
+    const numeric = parseInt(puzzleId, 10);
+    if (!isNaN(numeric)) {
+      await db.execute({
+        sql: 'INSERT OR IGNORE INTO contest_puzzles (contest_id, puzzle_id) VALUES (?, ?)',
+        args: [contestId, numeric]
+      });
+    }
   }
 
   res.redirect('/contests');
@@ -425,9 +416,7 @@ app.post('/contests/:id/edit', requireAuth, requireStaff, async (req, res) => {
 // 删除比赛
 app.post('/contests/:id/delete', requireAuth, requireStaff, async (req, res) => {
   const contestId = parseInt(req.params.id, 10);
-  if (isNaN(contestId)) {
-    return res.status(400).send('无效的比赛ID');
-  }
+  if (isNaN(contestId)) return res.status(400).send('无效的比赛ID');
 
   await db.execute({
     sql: 'DELETE FROM contests WHERE id = ?',
@@ -440,18 +429,14 @@ app.post('/contests/:id/delete', requireAuth, requireStaff, async (req, res) => 
 app.get('/contests/:id', requireAuth, async (req, res) => {
   try {
     const contestId = parseInt(req.params.id, 10);
-    if (isNaN(contestId)) {
-      return res.status(400).send('无效的比赛ID');
-    }
+    if (isNaN(contestId)) return res.status(400).send('无效的比赛ID');
 
     const contestResult = await db.execute({
       sql: 'SELECT * FROM contests WHERE id = ?',
       args: [contestId]
     });
     const contest = contestResult.rows[0];
-    if (!contest) {
-      return res.status(404).send('比赛不存在');
-    }
+    if (!contest) return res.status(404).send('比赛不存在');
 
     const isStaff = req.session.role === 'root' || req.session.role === 'admin';
     const userId = req.session.userId;
@@ -471,7 +456,6 @@ app.get('/contests/:id', requireAuth, async (req, res) => {
       ORDER BY p.id
     `, [contestId]);
     const contestPuzzles = puzzlesResult.rows;
-    console.log(`[Debug] contest ${contestId} 题目数:`, contestPuzzles.length);
 
     const now = new Date();
     const startTime = new Date(contest.start_time);
@@ -498,17 +482,13 @@ app.get('/contests/:id', requireAuth, async (req, res) => {
 app.post('/contests/:id/register', requireAuth, async (req, res) => {
   const contestId = parseInt(req.params.id, 10);
   const userId = req.session.userId;
-  if (isNaN(contestId)) {
-    return res.status(400).send('无效的比赛ID');
-  }
+  if (isNaN(contestId)) return res.status(400).send('无效的比赛ID');
 
   const contestResult = await db.execute({
     sql: 'SELECT id FROM contests WHERE id = ?',
     args: [contestId]
   });
-  if (contestResult.rows.length === 0) {
-    return res.status(404).send('比赛不存在');
-  }
+  if (contestResult.rows.length === 0) return res.status(404).send('比赛不存在');
 
   await db.execute({
     sql: 'INSERT OR IGNORE INTO contest_participants (contest_id, user_id) VALUES (?, ?)',
@@ -521,9 +501,7 @@ app.post('/contests/:id/register', requireAuth, async (req, res) => {
 app.post('/contests/:id/unregister', requireAuth, async (req, res) => {
   const contestId = parseInt(req.params.id, 10);
   const userId = req.session.userId;
-  if (isNaN(contestId)) {
-    return res.status(400).send('无效的比赛ID');
-  }
+  if (isNaN(contestId)) return res.status(400).send('无效的比赛ID');
 
   await db.execute({
     sql: 'DELETE FROM contest_participants WHERE contest_id = ? AND user_id = ?',
@@ -608,18 +586,14 @@ app.post('/puzzles', requireAuth, requireStaff, async (req, res) => {
 // 显示编辑谜题页面（staff）
 app.get('/puzzles/:id/edit', requireAuth, requireStaff, async (req, res) => {
   const puzzleId = parseInt(req.params.id, 10);
-  if (isNaN(puzzleId)) {
-    return res.status(400).send('无效的谜题ID');
-  }
+  if (isNaN(puzzleId)) return res.status(400).send('无效的谜题ID');
 
   const puzzleResult = await db.execute({
     sql: 'SELECT * FROM puzzles WHERE id = ?',
     args: [puzzleId]
   });
   const puzzle = puzzleResult.rows[0];
-  if (!puzzle) {
-    return res.status(404).send('谜题不存在');
-  }
+  if (!puzzle) return res.status(404).send('谜题不存在');
 
   const interResult = await db.execute({
     sql: 'SELECT * FROM intermediate_answers WHERE puzzle_id = ? ORDER BY sort_order, id',
@@ -643,17 +617,13 @@ app.get('/puzzles/:id/edit', requireAuth, requireStaff, async (req, res) => {
 // 处理编辑谜题
 app.post('/puzzles/:id/edit', requireAuth, requireStaff, async (req, res) => {
   const puzzleId = parseInt(req.params.id, 10);
-  if (isNaN(puzzleId)) {
-    return res.status(400).send('无效的谜题ID');
-  }
+  if (isNaN(puzzleId)) return res.status(400).send('无效的谜题ID');
 
   const puzzleResult = await db.execute({
     sql: 'SELECT id FROM puzzles WHERE id = ?',
     args: [puzzleId]
   });
-  if (puzzleResult.rows.length === 0) {
-    return res.status(404).send('谜题不存在');
-  }
+  if (puzzleResult.rows.length === 0) return res.status(404).send('谜题不存在');
 
   const {
     name = '',
@@ -723,17 +693,14 @@ app.post('/puzzles/:id/edit', requireAuth, requireStaff, async (req, res) => {
 // 切换题目可见性（staff）
 app.post('/puzzles/:id/toggle-visibility', requireAuth, requireStaff, async (req, res) => {
   const puzzleId = parseInt(req.params.id, 10);
-  if (isNaN(puzzleId)) {
-    return res.status(400).send('无效的谜题ID');
-  }
+  if (isNaN(puzzleId)) return res.status(400).send('无效的谜题ID');
 
   const puzzleResult = await db.execute({
     sql: 'SELECT is_visible FROM puzzles WHERE id = ?',
     args: [puzzleId]
   });
-  if (puzzleResult.rows.length === 0) {
-    return res.status(404).send('谜题不存在');
-  }
+  if (puzzleResult.rows.length === 0) return res.status(404).send('谜题不存在');
+
   const current = puzzleResult.rows[0].is_visible;
   const newVisibility = current ? 0 : 1;
   await db.execute({
@@ -746,9 +713,7 @@ app.post('/puzzles/:id/toggle-visibility', requireAuth, requireStaff, async (req
 // 删除谜题（staff）
 app.post('/puzzles/:id/delete', requireAuth, requireStaff, async (req, res) => {
   const puzzleId = parseInt(req.params.id, 10);
-  if (isNaN(puzzleId)) {
-    return res.status(400).send('无效的谜题ID');
-  }
+  if (isNaN(puzzleId)) return res.status(400).send('无效的谜题ID');
 
   // 手动删除比赛关联
   await db.execute({
@@ -766,23 +731,17 @@ app.post('/puzzles/:id/delete', requireAuth, requireStaff, async (req, res) => {
 // 谜题详情页
 app.get('/puzzles/:id', requireAuth, async (req, res) => {
   const puzzleId = parseInt(req.params.id, 10);
-  if (isNaN(puzzleId)) {
-    return res.status(400).send('无效的谜题ID');
-  }
+  if (isNaN(puzzleId)) return res.status(400).send('无效的谜题ID');
 
   const puzzleResult = await db.execute({
     sql: 'SELECT * FROM puzzles WHERE id = ?',
     args: [puzzleId]
   });
   const puzzle = puzzleResult.rows[0];
-  if (!puzzle) {
-    return res.status(404).send('谜题不存在');
-  }
+  if (!puzzle) return res.status(404).send('谜题不存在');
 
   const allowed = await canUserViewPuzzle(req.session.userId, req.session.role, puzzleId);
-  if (!allowed) {
-    return res.status(404).send('谜题不存在或已隐藏');
-  }
+  if (!allowed) return res.status(404).send('谜题不存在或已隐藏');
 
   const interResult = await db.execute({
     sql: 'SELECT * FROM intermediate_answers WHERE puzzle_id = ? ORDER BY sort_order, id',
@@ -826,23 +785,17 @@ app.get('/puzzles/:id', requireAuth, async (req, res) => {
 // 提交答案
 app.post('/puzzles/:id/answer', requireAuth, async (req, res) => {
   const puzzleId = parseInt(req.params.id, 10);
-  if (isNaN(puzzleId)) {
-    return res.status(400).send('无效的谜题ID');
-  }
+  if (isNaN(puzzleId)) return res.status(400).send('无效的谜题ID');
 
   const puzzleResult = await db.execute({
     sql: 'SELECT * FROM puzzles WHERE id = ?',
     args: [puzzleId]
   });
   const puzzle = puzzleResult.rows[0];
-  if (!puzzle) {
-    return res.status(404).send('谜题不存在');
-  }
+  if (!puzzle) return res.status(404).send('谜题不存在');
 
   const allowed = await canUserViewPuzzle(req.session.userId, req.session.role, puzzleId);
-  if (!allowed) {
-    return res.status(404).send('谜题不存在或已隐藏');
-  }
+  if (!allowed) return res.status(404).send('谜题不存在或已隐藏');
 
   const submittedAnswer = req.body.answer ? req.body.answer.trim().toLowerCase() : '';
   const finalAnswer = puzzle.answer.trim().toLowerCase();
@@ -867,6 +820,7 @@ app.post('/puzzles/:id/answer', requireAuth, async (req, res) => {
 });
 
 // ==================== 用户管理 ====================
+
 app.get('/admin/users', requireAuth, requireStaff, async (req, res) => {
   const usersResult = await db.execute('SELECT id, username, email, is_approved, role FROM users ORDER BY id');
   res.render('admin_users', {
@@ -883,12 +837,9 @@ app.post('/admin/users/:id/approve', requireAuth, requireStaff, async (req, res)
     args: [userId]
   });
   const user = userResult.rows[0];
-  if (!user) {
-    return res.status(404).send('用户不存在');
-  }
-  if (user.role === 'root') {
-    return res.redirect('/admin/users');
-  }
+  if (!user) return res.status(404).send('用户不存在');
+  if (user.role === 'root') return res.redirect('/admin/users');
+
   await db.execute({
     sql: 'UPDATE users SET is_approved = 1 WHERE id = ?',
     args: [userId]
@@ -903,9 +854,8 @@ app.post('/admin/users/:id/delete', requireAuth, requireStaff, async (req, res) 
     args: [userId]
   });
   const user = userResult.rows[0];
-  if (!user) {
-    return res.status(404).send('用户不存在');
-  }
+  if (!user) return res.status(404).send('用户不存在');
+
   if (req.session.role === 'root') {
     if (user.role !== 'root') {
       await db.execute({
@@ -914,6 +864,7 @@ app.post('/admin/users/:id/delete', requireAuth, requireStaff, async (req, res) 
       });
     }
   } else {
+    // admin 只能删除普通用户
     if (user.role === 'user') {
       await db.execute({
         sql: 'DELETE FROM users WHERE id = ?',
@@ -932,12 +883,9 @@ app.post('/admin/users/:id/set-admin', requireAuth, requireRoot, async (req, res
     args: [userId]
   });
   const user = userResult.rows[0];
-  if (!user) {
-    return res.status(404).send('用户不存在');
-  }
-  if (user.role === 'root') {
-    return res.redirect('/admin/users');
-  }
+  if (!user) return res.status(404).send('用户不存在');
+  if (user.role === 'root') return res.redirect('/admin/users');
+
   if (action === 'promote') {
     await db.execute({
       sql: 'UPDATE users SET role = ? WHERE id = ?',
@@ -950,11 +898,6 @@ app.post('/admin/users/:id/set-admin', requireAuth, requireRoot, async (req, res
     });
   }
   res.redirect('/admin/users');
-});
-
-app.get('/cleanup', requireAuth, requireStaff, async (req, res) => {
-  await db.execute("DELETE FROM contest_puzzles WHERE puzzle_id NOT IN (SELECT id FROM puzzles)");
-  res.send('清理完成');
 });
 
 app.listen(PORT, () => {
