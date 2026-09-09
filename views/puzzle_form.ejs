@@ -14,6 +14,7 @@
     .dynamic-row { margin-bottom: 5px; }
     .remove-btn { background: #dc3545; color: white; border: none; padding: 5px; cursor: pointer; }
     .add-btn { background: #007bff; color: white; border: none; padding: 5px 10px; cursor: pointer; margin-top: 5px; }
+    .hint-text { font-size: 0.9em; color: #666; margin-top: 2px; }
   </style>
 </head>
 <body>
@@ -35,10 +36,12 @@
       <div>
         <label>风味文本（可选，显示在标题后）</label>
         <textarea name="flavor_text" rows="2" placeholder="例如：这是谜题的风味文本"><%= puzzle ? puzzle.flavor_text : '' %></textarea>
+        <div class="hint-text">支持 Markdown 图片语法：![描述](图片URL)</div>
       </div>
       <div>
         <label>文字题面</label>
         <textarea name="description" rows="4"><%= puzzle ? puzzle.description : '' %></textarea>
+        <div class="hint-text">支持 Markdown 图片语法：![描述](图片URL)</div>
       </div>
       <div>
         <label>答案（必填）</label>
@@ -95,6 +98,7 @@
             </div>
           <% } %>
         </div>
+        <div class="hint-text">提示内容也支持 Markdown 图片语法</div>
         <button type="button" id="addHint" class="add-btn">添加提示</button>
       </div>
 

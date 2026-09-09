@@ -8,6 +8,41 @@ const { db, initDB } = require('./db');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// 辅助函数：HTML 转义
+function escapeHtml(str) {
+  return str.replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+}
+
+// 辅助函数：将 Markdown 图片语法转换为 <img> 标签，其余文本转义
+function renderMarkdownImages(text) {
+  if (!text) return '';
+  const parts = [];
+  let lastIndex = 0;
+  const regex = /!\[([^\]]*)\]\(([^)]+)\)/g;
+  let match;
+  while ((match = regex.exec(text)) !== null) {
+    const before = text.substring(lastIndex, match.index);
+    parts.push(escapeHtml(before));
+    const alt = escapeHtml(match[1]);
+    const url = escapeHtml(match[2]);
+    // 只允许 http/https 开头的 URL 作为图片
+    if (url.startsWith('http://') || url.startsWith('https://')) {
+      parts.push(`<img src="${url}" alt="${alt}" style="max-width:100%;" />`);
+    } else {
+      // 非有效 URL，保留原始文本
+      parts.push(escapeHtml(match[0]));
+    }
+    lastIndex = regex.lastIndex;
+  }
+  const tail = text.substring(lastIndex);
+  parts.push(escapeHtml(tail));
+  return parts.join('');
+}
+
 app.set('view engine', 'ejs');
 app.use(express.urlencoded({ extended: true }));
 app.use(session({
@@ -25,7 +60,6 @@ function requireAuth(req, res, next) {
   res.redirect('/login');
 }
 
-// 管理员权限中间件（root 或 admin）
 function requireStaff(req, res, next) {
   if (req.session && (req.session.role === 'root' || req.session.role === 'admin')) {
     return next();
@@ -33,7 +67,6 @@ function requireStaff(req, res, next) {
   res.status(403).send('无权限访问');
 }
 
-// 仅 root 权限中间件
 function requireRoot(req, res, next) {
   if (req.session && req.session.role === 'root') {
     return next();
@@ -217,14 +250,12 @@ app.post('/puzzles', requireAuth, requireStaff, async (req, res) => {
 
   const visibility = is_visible === 'on' ? 1 : 0;
 
-  // 插入谜题
   const insertResult = await db.execute({
     sql: 'INSERT INTO puzzles (name, tags, description, answer, flavor_text, is_visible) VALUES (?, ?, ?, ?, ?, ?)',
     args: [name.trim(), tags.trim(), description.trim(), answer.trim(), flavor_text.trim(), visibility]
   });
   const puzzleId = insertResult.lastInsertRowid;
 
-  // 插入中间答案
   if (Array.isArray(inter_answers) && inter_answers.length > 0) {
     for (let i = 0; i < inter_answers.length; i++) {
       const ans = inter_answers[i];
@@ -238,7 +269,6 @@ app.post('/puzzles', requireAuth, requireStaff, async (req, res) => {
     }
   }
 
-  // 插入提示
   if (Array.isArray(hint_texts) && hint_texts.length > 0) {
     for (let i = 0; i < hint_texts.length; i++) {
       const hintText = hint_texts[i];
@@ -289,7 +319,6 @@ app.get('/puzzles/:id/edit', requireAuth, requireStaff, async (req, res) => {
 // 处理编辑谜题（staff）
 app.post('/puzzles/:id/edit', requireAuth, requireStaff, async (req, res) => {
   const puzzleId = req.params.id;
-  // 确认谜题存在
   const puzzleResult = await db.execute({
     sql: 'SELECT id FROM puzzles WHERE id = ?',
     args: [puzzleId]
@@ -320,24 +349,20 @@ app.post('/puzzles/:id/edit', requireAuth, requireStaff, async (req, res) => {
 
   const visibility = is_visible === 'on' ? 1 : 0;
 
-  // 更新谜题主表
   await db.execute({
     sql: 'UPDATE puzzles SET name = ?, tags = ?, description = ?, answer = ?, flavor_text = ?, is_visible = ? WHERE id = ?',
     args: [name.trim(), tags.trim(), description.trim(), answer.trim(), flavor_text.trim(), visibility, puzzleId]
   });
 
-  // 删除旧的中间答案
   await db.execute({
     sql: 'DELETE FROM intermediate_answers WHERE puzzle_id = ?',
     args: [puzzleId]
   });
-  // 删除旧的提示
   await db.execute({
     sql: 'DELETE FROM hints WHERE puzzle_id = ?',
     args: [puzzleId]
   });
 
-  // 插入新的中间答案
   if (Array.isArray(inter_answers) && inter_answers.length > 0) {
     for (let i = 0; i < inter_answers.length; i++) {
       const ans = inter_answers[i];
@@ -351,7 +376,6 @@ app.post('/puzzles/:id/edit', requireAuth, requireStaff, async (req, res) => {
     }
   }
 
-  // 插入新的提示
   if (Array.isArray(hint_texts) && hint_texts.length > 0) {
     for (let i = 0; i < hint_texts.length; i++) {
       const hintText = hint_texts[i];
@@ -426,6 +450,14 @@ app.get('/puzzles/:id', requireAuth, async (req, res) => {
   });
   const hints = hintsResult.rows;
 
+  // 处理 Markdown 图片语法
+  const descriptionHtml = renderMarkdownImages(puzzle.description);
+  const flavorTextHtml = renderMarkdownImages(puzzle.flavor_text);
+  const hintsWithHtml = hints.map(hint => ({
+    ...hint,
+    hint_text_html: renderMarkdownImages(hint.hint_text)
+  }));
+
   const result = req.query.result === 'correct' ? 'correct' :
                  req.query.result === 'incorrect' ? 'incorrect' :
                  req.query.result === 'intermediate' ? 'intermediate' : null;
@@ -433,8 +465,10 @@ app.get('/puzzles/:id', requireAuth, async (req, res) => {
 
   res.render('puzzle', {
     puzzle,
+    descriptionHtml,
+    flavorTextHtml,
     intermediateAnswers,
-    hints,
+    hints: hintsWithHtml,
     result,
     intermediateInfo,
     username: req.session.username,
@@ -505,7 +539,6 @@ app.post('/admin/users/:id/approve', requireAuth, requireStaff, async (req, res)
   if (!user) {
     return res.status(404).send('用户不存在');
   }
-  // 不允许批准 root 自己（root 应该已批准），但批准普通用户或 admin 均可
   if (user.role === 'root') {
     return res.redirect('/admin/users');
   }
@@ -527,7 +560,6 @@ app.post('/admin/users/:id/delete', requireAuth, requireStaff, async (req, res) 
   if (!user) {
     return res.status(404).send('用户不存在');
   }
-  // root 可以删除除 root 外的任何用户
   if (req.session.role === 'root') {
     if (user.role !== 'root') {
       await db.execute({
@@ -536,7 +568,6 @@ app.post('/admin/users/:id/delete', requireAuth, requireStaff, async (req, res) 
       });
     }
   } else {
-    // admin 只能删除 role 为 'user' 的用户
     if (user.role === 'user') {
       await db.execute({
         sql: 'DELETE FROM users WHERE id = ?',
@@ -550,7 +581,7 @@ app.post('/admin/users/:id/delete', requireAuth, requireStaff, async (req, res) 
 // 设置/取消管理员（仅 root）
 app.post('/admin/users/:id/set-admin', requireAuth, requireRoot, async (req, res) => {
   const userId = req.params.id;
-  const { action } = req.body; // 'promote' or 'demote'
+  const { action } = req.body;
   const userResult = await db.execute({
     sql: 'SELECT * FROM users WHERE id = ?',
     args: [userId]

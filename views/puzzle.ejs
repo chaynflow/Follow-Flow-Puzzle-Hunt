@@ -12,6 +12,8 @@
     .puzzle-title { font-size: 1.5em; font-weight: bold; margin-bottom: 10px; }
     .flavor-text { font-style: italic; color: #555; margin: 5px 0; white-space: pre-line; }
     .description-text { white-space: pre-line; margin: 10px 0; }
+    .description-text img { max-width: 100%; height: auto; display: block; margin: 10px 0; }
+    .flavor-text img { max-width: 100%; height: auto; }
     .answer-form { margin-top: 25px; }
     .answer-form input { width: 100%; padding: 10px; margin-bottom: 10px; box-sizing: border-box; }
     .answer-form button { padding: 10px 20px; background: #28a745; color: white; border: none; cursor: pointer; }
@@ -22,6 +24,7 @@
     .hint-section { margin: 15px 0; }
     .hint-item { margin-bottom: 5px; }
     .hint-content { background: #fff3cd; padding: 10px; border-radius: 5px; margin-top: 5px; display: none; white-space: pre-line; }
+    .hint-content img { max-width: 100%; height: auto; }
     .hint-toggle-btn { background: #ffc107; color: #212529; border: none; padding: 5px 10px; cursor: pointer; border-radius: 3px; }
     .admin-answer { background: #e9ecef; padding: 10px; border-radius: 5px; margin-top: 10px; }
     .admin-intermediate { white-space: pre-line; }
@@ -42,13 +45,13 @@
       <%= puzzle.name %>
     </div>
 
-    <% if (puzzle.flavor_text) { %>
-      <p class="flavor-text"><em><%= puzzle.flavor_text %></em></p>
+    <% if (flavorTextHtml) { %>
+      <p class="flavor-text"><em><%- flavorTextHtml %></em></p>
     <% } %>
 
-    <% if (puzzle.description) { %>
+    <% if (descriptionHtml) { %>
       <h3>题面</h3>
-      <p class="description-text"><%= puzzle.description %></p>
+      <p class="description-text"><%- descriptionHtml %></p>
     <% } %>
 
     <!-- 管理信息（staff 可见） -->
@@ -83,7 +86,7 @@
               显示提示<%= index + 1 %><% if (hint.title) { %>：<%= hint.title %><% } %>
             </button>
             <div class="hint-content" id="hint-<%= hint.id %>">
-              <strong><%= hint.title || '提示' %>：</strong> <%= hint.hint_text %>
+              <strong><%= hint.title || '提示' %>：</strong> <%- hint.hint_text_html %>
             </div>
           </div>
         <% }) %>
