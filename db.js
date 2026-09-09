@@ -9,7 +9,13 @@ const db = createClient({
 });
 
 async function initDB() {
-  await db.execute("PRAGMA foreign_keys = ON;");
+  // 启用外键约束（如果数据库支持）
+  try {
+    await db.execute("PRAGMA foreign_keys = ON;");
+  } catch (err) {
+    console.warn('无法启用外键约束:', err.message);
+  }
+
   // 创建 users 表
   await db.execute(`
     CREATE TABLE IF NOT EXISTS users (
