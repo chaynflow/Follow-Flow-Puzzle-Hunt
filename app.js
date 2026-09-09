@@ -447,9 +447,14 @@ app.post('/contests/:id/delete', requireAuth, requireStaff, async (req, res) => 
 
 // 比赛详情
 app.get('/contests/:id', requireAuth, async (req, res) => {
+  const contestId = parseInt(req.params.id, 10);
+  if (isNaN(contestId)) {
+    return res.status(400).send('无效的比赛ID');
+  }
+
   const contestResult = await db.execute({
     sql: 'SELECT * FROM contests WHERE id = ?',
-    args: [req.params.id]
+    args: [contestId]
   });
   const contest = contestResult.rows[0];
   if (!contest) {
@@ -461,23 +466,27 @@ app.get('/contests/:id', requireAuth, async (req, res) => {
 
   const participantResult = await db.execute({
     sql: 'SELECT 1 FROM contest_participants WHERE contest_id = ? AND user_id = ?',
-    args: [contest.id, userId]
+    args: [contestId, userId]
   });
   const isParticipant = participantResult.rows.length > 0;
 
-  // 获取比赛题目
+  // 先查询原始关联记录（调试用）
+  const rawCpResult = await db.execute({
+    sql: 'SELECT * FROM contest_puzzles WHERE contest_id = ?',
+    args: [contestId]
+  });
+  console.log(`[Debug] contest_puzzles (contest ${contestId}):`, rawCpResult.rows);
+
+  // 查询比赛题目（使用 LEFT JOIN 并过滤掉不存在的 puzzle）
   const puzzlesResult = await db.execute(`
     SELECT p.id, p.name, p.tags, p.is_visible
     FROM contest_puzzles cp
-    JOIN puzzles p ON cp.puzzle_id = p.id
-    WHERE cp.contest_id = ?
+    LEFT JOIN puzzles p ON cp.puzzle_id = p.id
+    WHERE cp.contest_id = ? AND p.id IS NOT NULL
     ORDER BY p.id
-  `, [contest.id]);
+  `, [contestId]);
   const contestPuzzles = puzzlesResult.rows;
-
-  // 调试日志
-  console.log(`比赛 ${contest.id} 题目数: ${contestPuzzles.length}`);
-  console.log(contestPuzzles);
+  console.log(`[Debug] contest ${contestId} 题目数:`, contestPuzzles.length);
 
   const now = new Date();
   const startTime = new Date(contest.start_time);
@@ -728,9 +737,19 @@ app.post('/puzzles/:id/toggle-visibility', requireAuth, requireStaff, async (req
 
 // 删除谜题（staff）
 app.post('/puzzles/:id/delete', requireAuth, requireStaff, async (req, res) => {
+  const puzzleId = parseInt(req.params.id, 10);
+  if (isNaN(puzzleId)) {
+    return res.status(400).send('无效的谜题ID');
+  }
+  // 先手动删除比赛关联（即使外键可能未启用）
+  await db.execute({
+    sql: 'DELETE FROM contest_puzzles WHERE puzzle_id = ?',
+    args: [puzzleId]
+  });
+  // 删除谜题
   await db.execute({
     sql: 'DELETE FROM puzzles WHERE id = ?',
-    args: [req.params.id]
+    args: [puzzleId]
   });
   res.redirect('/dashboard');
 });

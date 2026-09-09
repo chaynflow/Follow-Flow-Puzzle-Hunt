@@ -9,6 +9,7 @@ const db = createClient({
 });
 
 async function initDB() {
+  await db.execute("PRAGMA foreign_keys = ON;");
   // 创建 users 表
   await db.execute(`
     CREATE TABLE IF NOT EXISTS users (
