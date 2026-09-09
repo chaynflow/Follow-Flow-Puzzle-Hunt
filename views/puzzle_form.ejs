@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title><%= isEdit ? '编辑谜题' : '添加谜题' %> - Follow-Flow Puzzle Hunt</title>
+  <style>
+    body { font-family: Arial, sans-serif; max-width: 800px; margin: 30px auto; padding: 20px; }
+    .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+    .back-link { color: #007bff; text-decoration: none; }
+    .form-container { background: #f8f9fa; padding: 20px; border-radius: 5px; }
+    .form-container input, .form-container textarea { width: 100%; padding: 8px; margin: 8px 0; box-sizing: border-box; }
+    .form-container button { padding: 10px 20px; background: #28a745; color: white; border: none; cursor: pointer; }
+    .dynamic-row { margin-bottom: 5px; }
+    .remove-btn { background: #dc3545; color: white; border: none; padding: 5px; cursor: pointer; }
+    .add-btn { background: #007bff; color: white; border: none; padding: 5px 10px; cursor: pointer; margin-top: 5px; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1><%= isEdit ? '编辑谜题' : '添加新谜题' %></h1>
+    <a href="/dashboard" class="back-link">&larr; 返回仪表板</a>
+  </div>
+
+  <div class="form-container">
+    <form action="<%= isEdit ? `/puzzles/${puzzle.id}/edit` : '/puzzles' %>" method="POST" id="puzzleForm">
+      <div>
+        <label>题目名称（必填）</label>
+        <input type="text" name="name" value="<%= puzzle ? puzzle.name : '' %>" required>
+      </div>
+      <div>
+        <label>标签（可选，多个用逗号分隔）</label>
+        <input type="text" name="tags" value="<%= puzzle ? puzzle.tags : '' %>">
+      </div>
+      <div>
+        <label>风味文本（可选，显示在标题后）</label>
+        <textarea name="flavor_text" rows="2" placeholder="例如：这是谜题的风味文本"><%= puzzle ? puzzle.flavor_text : '' %></textarea>
+      </div>
+      <div>
+        <label>文字题面</label>
+        <textarea name="description" rows="4"><%= puzzle ? puzzle.description : '' %></textarea>
+      </div>
+      <div>
+        <label>答案（必填）</label>
+        <input type="text" name="answer" value="<%= puzzle ? puzzle.answer : '' %>" required>
+      </div>
+      <div>
+        <label>
+          <input type="checkbox" name="is_visible" <%= puzzle ? (puzzle.is_visible ? 'checked' : '') : 'checked' %>> 可见（普通用户可以看到）
+        </label>
+      </div>
+
+      <!-- 中间答案动态区域 -->
+      <div>
+        <label>中间答案及对应信息（可选，可添加多个）</label>
+        <div id="intermediateContainer">
+          <% let interIndex = 0; %>
+          <% intermediateAnswers.forEach(ia => { %>
+            <div class="intermediate-row dynamic-row">
+              <input type="text" name="inter_answers[]" value="<%= ia.answer %>" placeholder="中间答案" style="width:45%; display:inline-block;">
+              <input type="text" name="inter_infos[]" value="<%= ia.info || '' %>" placeholder="对应信息（可选）" style="width:45%; display:inline-block;">
+              <button type="button" class="remove-intermediate remove-btn">删除</button>
+            </div>
+            <% interIndex++; %>
+          <% }) %>
+          <% if (intermediateAnswers.length === 0) { %>
+            <div class="intermediate-row dynamic-row">
+              <input type="text" name="inter_answers[]" placeholder="中间答案" style="width:45%; display:inline-block;">
+              <input type="text" name="inter_infos[]" placeholder="对应信息（可选）" style="width:45%; display:inline-block;">
+              <button type="button" class="remove-intermediate remove-btn">删除</button>
+            </div>
+          <% } %>
+        </div>
+        <button type="button" id="addIntermediate" class="add-btn">添加中间答案</button>
+      </div>
+
+      <!-- 提示动态区域 -->
+      <div>
+        <label>提示（可选，可添加多个，包含标题和内容）</label>
+        <div id="hintContainer">
+          <% let hintIndex = 0; %>
+          <% hints.forEach(hint => { %>
+            <div class="hint-row dynamic-row">
+              <input type="text" name="hint_titles[]" value="<%= hint.title || '' %>" placeholder="提示标题" style="width:30%; display:inline-block; margin-right:5px;">
+              <input type="text" name="hint_texts[]" value="<%= hint.hint_text %>" placeholder="提示内容" style="width:55%; display:inline-block;">
+              <button type="button" class="remove-hint remove-btn">删除</button>
+            </div>
+            <% hintIndex++; %>
+          <% }) %>
+          <% if (hints.length === 0) { %>
+            <div class="hint-row dynamic-row">
+              <input type="text" name="hint_titles[]" placeholder="提示标题" style="width:30%; display:inline-block; margin-right:5px;">
+              <input type="text" name="hint_texts[]" placeholder="提示内容" style="width:55%; display:inline-block;">
+              <button type="button" class="remove-hint remove-btn">删除</button>
+            </div>
+          <% } %>
+        </div>
+        <button type="button" id="addHint" class="add-btn">添加提示</button>
+      </div>
+
+      <button type="submit" style="margin-top:15px;"><%= isEdit ? '保存修改' : '添加谜题' %></button>
+    </form>
+  </div>
+
+  <script>
+    // 动态添加中间答案行
+    document.getElementById('addIntermediate').addEventListener('click', function() {
+      const container = document.getElementById('intermediateContainer');
+      const row = document.createElement('div');
+      row.className = 'intermediate-row dynamic-row';
+      row.innerHTML = `
+        <input type="text" name="inter_answers[]" placeholder="中间答案" style="width:45%; display:inline-block;">
+        <input type="text" name="inter_infos[]" placeholder="对应信息（可选）" style="width:45%; display:inline-block;">
+        <button type="button" class="remove-intermediate remove-btn">删除</button>
+      `;
+      container.appendChild(row);
+      attachRemoveHandlers();
+    });
+
+    // 动态添加提示行
+    document.getElementById('addHint').addEventListener('click', function() {
+      const container = document.getElementById('hintContainer');
+      const row = document.createElement('div');
+      row.className = 'hint-row dynamic-row';
+      row.innerHTML = `
+        <input type="text" name="hint_titles[]" placeholder="提示标题" style="width:30%; display:inline-block; margin-right:5px;">
+        <input type="text" name="hint_texts[]" placeholder="提示内容" style="width:55%; display:inline-block;">
+        <button type="button" class="remove-hint remove-btn">删除</button>
+      `;
+      container.appendChild(row);
+      attachRemoveHandlers();
+    });
+
+    // 绑定删除事件
+    function attachRemoveHandlers() {
+      document.querySelectorAll('.remove-intermediate').forEach(btn => {
+        btn.onclick = function() { this.parentElement.remove(); };
+      });
+      document.querySelectorAll('.remove-hint').forEach(btn => {
+        btn.onclick = function() { this.parentElement.remove(); };
+      });
+    }
+
+    // 初始绑定
+    attachRemoveHandlers();
+  </script>
+</body>
+</html>

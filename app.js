@@ -171,17 +171,29 @@ app.get('/dashboard', requireAuth, async (req, res) => {
     `);
   }
   const puzzles = puzzlesResult.rows;
-  res.render('dashboard', { 
-    username: req.session.username, 
-    puzzles, 
-    isRoot, 
-    isAdmin, 
+  res.render('dashboard', {
+    username: req.session.username,
+    puzzles,
+    isRoot,
+    isAdmin,
     isStaff,
-    userRole: req.session.role 
+    userRole: req.session.role
   });
 });
 
-// 添加谜题（staff）
+// 显示添加新谜题页面（staff）
+app.get('/puzzles/new', requireAuth, requireStaff, (req, res) => {
+  res.render('puzzle_form', {
+    puzzle: null,
+    intermediateAnswers: [],
+    hints: [],
+    isEdit: false,
+    username: req.session.username,
+    isStaff: true
+  });
+});
+
+// 处理添加谜题（staff）
 app.post('/puzzles', requireAuth, requireStaff, async (req, res) => {
   const {
     name = '',
@@ -205,12 +217,14 @@ app.post('/puzzles', requireAuth, requireStaff, async (req, res) => {
 
   const visibility = is_visible === 'on' ? 1 : 0;
 
+  // 插入谜题
   const insertResult = await db.execute({
     sql: 'INSERT INTO puzzles (name, tags, description, answer, flavor_text, is_visible) VALUES (?, ?, ?, ?, ?, ?)',
     args: [name.trim(), tags.trim(), description.trim(), answer.trim(), flavor_text.trim(), visibility]
   });
   const puzzleId = insertResult.lastInsertRowid;
 
+  // 插入中间答案
   if (Array.isArray(inter_answers) && inter_answers.length > 0) {
     for (let i = 0; i < inter_answers.length; i++) {
       const ans = inter_answers[i];
@@ -224,6 +238,120 @@ app.post('/puzzles', requireAuth, requireStaff, async (req, res) => {
     }
   }
 
+  // 插入提示
+  if (Array.isArray(hint_texts) && hint_texts.length > 0) {
+    for (let i = 0; i < hint_texts.length; i++) {
+      const hintText = hint_texts[i];
+      if (hintText && hintText.trim() !== '') {
+        const hintTitle = (hint_titles[i] || '').trim();
+        await db.execute({
+          sql: 'INSERT INTO hints (puzzle_id, title, hint_text, sort_order) VALUES (?, ?, ?, ?)',
+          args: [puzzleId, hintTitle, hintText.trim(), i]
+        });
+      }
+    }
+  }
+
+  res.redirect('/dashboard');
+});
+
+// 显示编辑谜题页面（staff）
+app.get('/puzzles/:id/edit', requireAuth, requireStaff, async (req, res) => {
+  const puzzleId = req.params.id;
+  const puzzleResult = await db.execute({
+    sql: 'SELECT * FROM puzzles WHERE id = ?',
+    args: [puzzleId]
+  });
+  const puzzle = puzzleResult.rows[0];
+  if (!puzzle) {
+    return res.status(404).send('谜题不存在');
+  }
+
+  const interResult = await db.execute({
+    sql: 'SELECT * FROM intermediate_answers WHERE puzzle_id = ? ORDER BY sort_order, id',
+    args: [puzzleId]
+  });
+  const hintsResult = await db.execute({
+    sql: 'SELECT * FROM hints WHERE puzzle_id = ? ORDER BY sort_order, id',
+    args: [puzzleId]
+  });
+
+  res.render('puzzle_form', {
+    puzzle,
+    intermediateAnswers: interResult.rows,
+    hints: hintsResult.rows,
+    isEdit: true,
+    username: req.session.username,
+    isStaff: true
+  });
+});
+
+// 处理编辑谜题（staff）
+app.post('/puzzles/:id/edit', requireAuth, requireStaff, async (req, res) => {
+  const puzzleId = req.params.id;
+  // 确认谜题存在
+  const puzzleResult = await db.execute({
+    sql: 'SELECT id FROM puzzles WHERE id = ?',
+    args: [puzzleId]
+  });
+  if (puzzleResult.rows.length === 0) {
+    return res.status(404).send('谜题不存在');
+  }
+
+  const {
+    name = '',
+    tags = '',
+    description = '',
+    answer,
+    flavor_text = '',
+    is_visible,
+    inter_answers = [],
+    inter_infos = [],
+    hint_titles = [],
+    hint_texts = []
+  } = req.body;
+
+  if (!name || name.trim() === '') {
+    return res.status(400).send('题目名称不能为空');
+  }
+  if (!answer || answer.trim() === '') {
+    return res.status(400).send('答案不能为空');
+  }
+
+  const visibility = is_visible === 'on' ? 1 : 0;
+
+  // 更新谜题主表
+  await db.execute({
+    sql: 'UPDATE puzzles SET name = ?, tags = ?, description = ?, answer = ?, flavor_text = ?, is_visible = ? WHERE id = ?',
+    args: [name.trim(), tags.trim(), description.trim(), answer.trim(), flavor_text.trim(), visibility, puzzleId]
+  });
+
+  // 删除旧的中间答案
+  await db.execute({
+    sql: 'DELETE FROM intermediate_answers WHERE puzzle_id = ?',
+    args: [puzzleId]
+  });
+  // 删除旧的提示
+  await db.execute({
+    sql: 'DELETE FROM hints WHERE puzzle_id = ?',
+    args: [puzzleId]
+  });
+
+  // 插入新的中间答案
+  if (Array.isArray(inter_answers) && inter_answers.length > 0) {
+    for (let i = 0; i < inter_answers.length; i++) {
+      const ans = inter_answers[i];
+      if (ans && ans.trim() !== '') {
+        const info = inter_infos[i] || '';
+        await db.execute({
+          sql: 'INSERT INTO intermediate_answers (puzzle_id, answer, info, sort_order) VALUES (?, ?, ?, ?)',
+          args: [puzzleId, ans.trim(), info.trim(), i]
+        });
+      }
+    }
+  }
+
+  // 插入新的提示
   if (Array.isArray(hint_texts) && hint_texts.length > 0) {
     for (let i = 0; i < hint_texts.length; i++) {
       const hintText = hint_texts[i];
@@ -303,16 +431,16 @@ app.get('/puzzles/:id', requireAuth, async (req, res) => {
                  req.query.result === 'intermediate' ? 'intermediate' : null;
   const intermediateInfo = req.query.intermediate_info || '';
 
-  res.render('puzzle', { 
-    puzzle, 
-    intermediateAnswers, 
-    hints, 
-    result, 
-    intermediateInfo, 
-    username: req.session.username, 
-    isRoot, 
-    isAdmin, 
-    isStaff 
+  res.render('puzzle', {
+    puzzle,
+    intermediateAnswers,
+    hints,
+    result,
+    intermediateInfo,
+    username: req.session.username,
+    isRoot,
+    isAdmin,
+    isStaff
   });
 });
 
@@ -359,8 +487,8 @@ app.post('/puzzles/:id/answer', requireAuth, async (req, res) => {
 // 用户管理页面（staff）
 app.get('/admin/users', requireAuth, requireStaff, async (req, res) => {
   const usersResult = await db.execute('SELECT id, username, email, is_approved, role FROM users ORDER BY id');
-  res.render('admin_users', { 
-    users: usersResult.rows, 
+  res.render('admin_users', {
+    users: usersResult.rows,
     username: req.session.username,
     currentUserRole: req.session.role
   });

@@ -25,6 +25,7 @@
     .hint-toggle-btn { background: #ffc107; color: #212529; border: none; padding: 5px 10px; cursor: pointer; border-radius: 3px; }
     .admin-answer { background: #e9ecef; padding: 10px; border-radius: 5px; margin-top: 10px; }
     .admin-intermediate { white-space: pre-line; }
+    .edit-link { color: #007bff; text-decoration: none; margin-left: 10px; }
   </style>
 </head>
 <body>
@@ -53,7 +54,9 @@
     <!-- 管理信息（staff 可见） -->
     <% if (isStaff) { %>
       <div class="admin-answer">
-        <h3>管理信息（仅 staff 可见）</h3>
+        <h3>管理信息（仅 staff 可见）
+          <a href="/puzzles/<%= puzzle.id %>/edit" class="edit-link">编辑</a>
+        </h3>
         <p><strong>答案：</strong> <%= puzzle.answer %></p>
         <p><strong>可见性：</strong> <%= puzzle.is_visible ? '可见' : '隐藏' %></p>
         <% if (intermediateAnswers.length > 0) { %>
