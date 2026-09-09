@@ -325,18 +325,18 @@ app.get('/contests/new', requireAuth, requireStaff, async (req, res) => {
 
 // 处理创建比赛
 // 处理创建比赛
+// 处理创建比赛
 app.post('/contests', requireAuth, requireStaff, async (req, res) => {
   const { name, description, start_time, end_time, puzzle_ids } = req.body;
   if (!name || !start_time || !end_time) {
     return res.status(400).send('比赛名称、开始时间和结束时间不能为空');
   }
 
-  // 确保 puzzle_ids 是数组（若未传递则设为空数组，若为字符串则包装为数组）
   let puzzleIds = Array.isArray(puzzle_ids) ? puzzle_ids : [];
   if (typeof puzzle_ids === 'string') {
     puzzleIds = [puzzle_ids];
   }
-  console.log('创建比赛 puzzleIds:', puzzleIds); // 调试用，可删除
+  console.log('创建比赛 puzzleIds:', puzzleIds);
 
   const insertResult = await db.execute({
     sql: 'INSERT INTO contests (name, description, start_time, end_time) VALUES (?, ?, ?, ?)',
@@ -354,35 +354,50 @@ app.post('/contests', requireAuth, requireStaff, async (req, res) => {
     });
   }
 
+  // 验证插入结果（可选，排查用）
+  const verifyResult = await db.execute({
+    sql: 'SELECT COUNT(*) AS cnt FROM contest_puzzles WHERE contest_id = ?',
+    args: [contestId]
+  });
+  console.log(`比赛 ${contestId} 关联题目数: ${verifyResult.rows[0].cnt}`);
+
   res.redirect('/contests');
 });
 
 // 显示编辑比赛表单（staff）
-app.get('/contests/:id/edit', requireAuth, requireStaff, async (req, res) => {
-  const contestResult = await db.execute({
-    sql: 'SELECT * FROM contests WHERE id = ?',
-    args: [req.params.id]
-  });
-  const contest = contestResult.rows[0];
-  if (!contest) {
-    return res.status(404).send('比赛不存在');
+// 处理编辑比赛
+app.post('/contests/:id/edit', requireAuth, requireStaff, async (req, res) => {
+  const contestId = req.params.id;
+  const { name, description, start_time, end_time, puzzle_ids } = req.body;
+  if (!name || !start_time || !end_time) {
+    return res.status(400).send('比赛名称、开始时间和结束时间不能为空');
   }
 
-  // 获取已选题目
-  const selectedResult = await db.execute({
-    sql: 'SELECT puzzle_id FROM contest_puzzles WHERE contest_id = ?',
-    args: [contest.id]
-  });
-  const selectedPuzzleIds = selectedResult.rows.map(row => row.puzzle_id);
+  let puzzleIds = Array.isArray(puzzle_ids) ? puzzle_ids : [];
+  if (typeof puzzle_ids === 'string') {
+    puzzleIds = [puzzle_ids];
+  }
 
-  const puzzlesResult = await db.execute('SELECT id, name, is_visible FROM puzzles ORDER BY id');
-  res.render('contest_form', {
-    contest,
-    puzzles: puzzlesResult.rows,
-    selectedPuzzleIds,
-    isEdit: true,
-    isStaff: true
+  await db.execute({
+    sql: 'UPDATE contests SET name = ?, description = ?, start_time = ?, end_time = ? WHERE id = ?',
+    args: [name.trim(), description ? description.trim() : '', start_time, end_time, contestId]
   });
+
+  await db.execute({
+    sql: 'DELETE FROM contest_puzzles WHERE contest_id = ?',
+    args: [contestId]
+  });
+
+  for (const puzzleId of puzzleIds) {
+    const numericPuzzleId = parseInt(puzzleId, 10);
+    if (isNaN(numericPuzzleId)) continue;
+    await db.execute({
+      sql: 'INSERT OR IGNORE INTO contest_puzzles (contest_id, puzzle_id) VALUES (?, ?)',
+      args: [contestId, numericPuzzleId]
+    });
+  }
+
+  res.redirect('/contests');
 });
 
 // 处理编辑比赛
@@ -444,14 +459,13 @@ app.get('/contests/:id', requireAuth, async (req, res) => {
   const isStaff = req.session.role === 'root' || req.session.role === 'admin';
   const userId = req.session.userId;
 
-  // 检查用户是否报名
   const participantResult = await db.execute({
     sql: 'SELECT 1 FROM contest_participants WHERE contest_id = ? AND user_id = ?',
     args: [contest.id, userId]
   });
   const isParticipant = participantResult.rows.length > 0;
 
-  // 获取比赛包含的题目
+  // 获取比赛题目
   const puzzlesResult = await db.execute(`
     SELECT p.id, p.name, p.tags, p.is_visible
     FROM contest_puzzles cp
@@ -461,16 +475,16 @@ app.get('/contests/:id', requireAuth, async (req, res) => {
   `, [contest.id]);
   const contestPuzzles = puzzlesResult.rows;
 
-  // 比赛状态
+  // 调试日志
+  console.log(`比赛 ${contest.id} 题目数: ${contestPuzzles.length}`);
+  console.log(contestPuzzles);
+
   const now = new Date();
   const startTime = new Date(contest.start_time);
   const endTime = new Date(contest.end_time);
-  let status = 'upcoming'; // 未开始
-  if (now >= startTime && now <= endTime) {
-    status = 'active'; // 进行中
-  } else if (now > endTime) {
-    status = 'ended'; // 已结束
-  }
+  let status = 'upcoming';
+  if (now >= startTime && now <= endTime) status = 'active';
+  else if (now > endTime) status = 'ended';
 
   res.render('contest', {
     contest,
