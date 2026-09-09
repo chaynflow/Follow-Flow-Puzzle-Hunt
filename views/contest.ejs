@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title><%= contest.name %> - Follow-Flow Puzzle Hunt</title>
+  <style>
+    body { font-family: Arial, sans-serif; max-width: 900px; margin: 30px auto; padding: 20px; }
+    .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+    .back-link { color: #007bff; text-decoration: none; }
+    .contest-info { background: #f8f9fa; padding: 20px; border-radius: 5px; margin-bottom: 20px; }
+    .contest-name { font-size: 1.5em; font-weight: bold; margin-bottom: 5px; }
+    .status-badge { display: inline-block; padding: 3px 8px; border-radius: 3px; font-size: 0.8em; margin-left: 10px; }
+    .status-active { background: #d4edda; color: #155724; }
+    .status-upcoming { background: #fff3cd; color: #856404; }
+    .status-ended { background: #f8d7da; color: #721c24; }
+    .puzzle-list { list-style: none; padding: 0; margin-top: 20px; }
+    .puzzle-item { background: #f1f1f1; padding: 10px; margin-bottom: 5px; border-radius: 3px; }
+    .puzzle-link { color: #007bff; text-decoration: none; }
+    .btn { display: inline-block; padding: 6px 12px; border: none; border-radius: 3px; cursor: pointer; text-decoration: none; }
+    .btn-register { background: #28a745; color: white; }
+    .btn-unregister { background: #dc3545; color: white; }
+    .register-form { display: inline-block; }
+    .actions { margin-top: 15px; }
+    .staff-actions { margin-top: 20px; }
+    .staff-actions a, .staff-actions button { margin-right: 10px; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1><%= contest.name %></h1>
+    <a href="/contests" class="back-link">&larr; 返回比赛列表</a>
+  </div>
+
+  <div class="contest-info">
+    <div class="contest-name">
+      <%= contest.name %>
+      <span class="status-badge status-<%= status %>">
+        <%= status === 'active' ? '进行中' : (status === 'upcoming' ? '未开始' : '已结束') %>
+      </span>
+    </div>
+    <% if (contest.description) { %>
+      <p><%= contest.description %></p>
+    <% } %>
+    <p><strong>开始时间：</strong><%= contest.start_time %></p>
+    <p><strong>结束时间：</strong><%= contest.end_time %></p>
+  </div>
+
+  <% if (isStaff) { %>
+    <div class="staff-actions">
+      <a href="/contests/<%= contest.id %>/edit" class="btn btn-register">编辑比赛</a>
+      <form action="/contests/<%= contest.id %>/delete" method="POST" style="display:inline-block;" onsubmit="return confirm('确定要删除该比赛吗？');">
+        <button type="submit" class="btn btn-unregister">删除比赛</button>
+      </form>
+    </div>
+  <% } else { %>
+    <div class="actions">
+      <% if (isParticipant) { %>
+        <span>已报名</span>
+        <form action="/contests/<%= contest.id %>/unregister" method="POST" class="register-form">
+          <button type="submit" class="btn btn-unregister">取消报名</button>
+        </form>
+      <% } else { %>
+        <form action="/contests/<%= contest.id %>/register" method="POST" class="register-form">
+          <button type="submit" class="btn btn-register">报名参赛</button>
+        </form>
+      <% } %>
+    </div>
+  <% } %>
+
+  <% if (isStaff || isParticipant) { %>
+    <h3>比赛题目</h3>
+    <% if (contestPuzzles.length === 0) { %>
+      <p>暂无题目。</p>
+    <% } else { %>
+      <ul class="puzzle-list">
+        <% contestPuzzles.forEach(puzzle => { %>
+          <li class="puzzle-item">
+            <a href="/puzzles/<%= puzzle.id %>" class="puzzle-link">
+              <% if (puzzle.tags) { %>【<%= puzzle.tags %>】<% } %>
+              <%= puzzle.name %>
+              <% if (puzzle.is_visible === 0) { %><small>(隐藏题目)</small><% } %>
+            </a>
+          </li>
+        <% }) %>
+      </ul>
+    <% } %>
+  <% } %>
+</body>
+</html>

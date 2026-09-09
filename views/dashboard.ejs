@@ -5,10 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>仪表板 - Follow-Flow Puzzle Hunt</title>
   <style>
-    body { font-family: Arial, sans-serif; max-width: 900px; margin: 30px auto; padding: 20px; }
+    body { font-family: Arial, sans-serif; max-width: 1000px; margin: 30px auto; padding: 20px; }
     .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
     .logout { color: #dc3545; text-decoration: none; }
     .admin-link { color: #007bff; text-decoration: none; margin-right: 15px; }
+    .contest-link { color: #17a2b8; text-decoration: none; margin-right: 15px; }
     .add-link { display: inline-block; background: #28a745; color: white; padding: 8px 16px; text-decoration: none; border-radius: 5px; margin-bottom: 20px; }
     .puzzle-list { list-style: none; padding: 0; }
     .puzzle-item { background: #f1f1f1; padding: 15px; margin-bottom: 10px; border-radius: 5px; }
@@ -27,6 +28,7 @@
   <div class="header">
     <h1>欢迎, <%= username %>!</h1>
     <div>
+      <a href="/contests" class="contest-link">比赛</a>
       <% if (isStaff) { %>
         <a href="/admin/users" class="admin-link">用户管理</a>
       <% } %>

@@ -8,7 +8,7 @@ const { db, initDB } = require('./db');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// 辅助函数：HTML 转义
+// Helper: HTML 转义
 function escapeHtml(str) {
   return str.replace(/&/g, '&amp;')
             .replace(/</g, '&lt;')
@@ -17,7 +17,7 @@ function escapeHtml(str) {
             .replace(/'/g, '&#39;');
 }
 
-// 辅助函数：将 Markdown 图片语法转换为 <img> 标签，其余文本转义
+// Helper: Markdown 图片渲染
 function renderMarkdownImages(text) {
   if (!text) return '';
   const parts = [];
@@ -29,11 +29,9 @@ function renderMarkdownImages(text) {
     parts.push(escapeHtml(before));
     const alt = escapeHtml(match[1]);
     const url = escapeHtml(match[2]);
-    // 只允许 http/https 开头的 URL 作为图片
     if (url.startsWith('http://') || url.startsWith('https://')) {
       parts.push(`<img src="${url}" alt="${alt}" style="max-width:100%;" />`);
     } else {
-      // 非有效 URL，保留原始文本
       parts.push(escapeHtml(match[0]));
     }
     lastIndex = regex.lastIndex;
@@ -60,6 +58,7 @@ function requireAuth(req, res, next) {
   res.redirect('/login');
 }
 
+// 管理员权限（root/admin）
 function requireStaff(req, res, next) {
   if (req.session && (req.session.role === 'root' || req.session.role === 'admin')) {
     return next();
@@ -67,11 +66,63 @@ function requireStaff(req, res, next) {
   res.status(403).send('无权限访问');
 }
 
+// 仅 root
 function requireRoot(req, res, next) {
   if (req.session && req.session.role === 'root') {
     return next();
   }
   res.status(403).send('无权限访问');
+}
+
+// 检查用户是否可以查看某题目（考虑比赛隐藏题目的特殊情况）
+async function canUserViewPuzzle(userId, role, puzzleId) {
+  // Staff 总是可以查看
+  if (role === 'root' || role === 'admin') {
+    return true;
+  }
+
+  // 获取题目
+  const puzzleResult = await db.execute({
+    sql: 'SELECT is_visible FROM puzzles WHERE id = ?',
+    args: [puzzleId]
+  });
+  if (puzzleResult.rows.length === 0) {
+    return false; // 题目不存在
+  }
+  const puzzle = puzzleResult.rows[0];
+
+  // 如果题目可见，直接允许
+  if (puzzle.is_visible === 1) {
+    return true;
+  }
+
+  // 题目隐藏，检查用户是否报名了进行中的比赛且该比赛包含此题目
+  const now = new Date();
+  const nowIso = now.toISOString(); // 使用 ISO 字符串，但 start_time/end_time 存储的是 'YYYY-MM-DDTHH:mm'，可能不含秒和时区。我们使用 Date 解析比较。
+  // 查询包含该 puzzle 的进行中比赛
+  const contestsResult = await db.execute(`
+    SELECT c.id, c.start_time, c.end_time
+    FROM contests c
+    JOIN contest_puzzles cp ON c.id = cp.contest_id
+    WHERE cp.puzzle_id = ?
+  `, [puzzleId]);
+
+  for (const contest of contestsResult.rows) {
+    const startTime = new Date(contest.start_time);
+    const endTime = new Date(contest.end_time);
+    if (now >= startTime && now <= endTime) {
+      // 比赛进行中，检查用户是否报名
+      const participantResult = await db.execute({
+        sql: 'SELECT 1 FROM contest_participants WHERE contest_id = ? AND user_id = ?',
+        args: [contest.id, userId]
+      });
+      if (participantResult.rows.length > 0) {
+        return true;
+      }
+    }
+  }
+
+  return false;
 }
 
 // 初始化数据库
@@ -194,14 +245,22 @@ app.get('/dashboard', requireAuth, async (req, res) => {
       ORDER BY p.created_at DESC
     `);
   } else {
+    // 普通用户：显示可见题目，以及比赛期间可访问的隐藏题目（通过报名）
     puzzlesResult = await db.execute(`
-      SELECT p.*,
+      SELECT DISTINCT p.*,
              (SELECT COUNT(*) FROM intermediate_answers ia WHERE ia.puzzle_id = p.id) AS inter_count,
              (SELECT COUNT(*) FROM hints h WHERE h.puzzle_id = p.id) AS hint_count
       FROM puzzles p
       WHERE p.is_visible = 1
+         OR p.id IN (
+              SELECT cp.puzzle_id
+              FROM contest_puzzles cp
+              JOIN contests c ON cp.contest_id = c.id
+              JOIN contest_participants pcp ON cp.contest_id = pcp.contest_id AND pcp.user_id = ?
+              WHERE datetime('now') BETWEEN c.start_time AND c.end_time
+          )
       ORDER BY p.created_at DESC
-    `);
+    `, [req.session.userId]);
   }
   const puzzles = puzzlesResult.rows;
   res.render('dashboard', {
@@ -213,6 +272,216 @@ app.get('/dashboard', requireAuth, async (req, res) => {
     userRole: req.session.role
   });
 });
+
+// ==================== 比赛相关路由 ====================
+
+// 比赛列表（所有已登录用户）
+app.get('/contests', requireAuth, async (req, res) => {
+  const contestsResult = await db.execute(`
+    SELECT c.*,
+           (SELECT COUNT(*) FROM contest_puzzles cp WHERE cp.contest_id = c.id) AS puzzle_count,
+           (SELECT COUNT(*) FROM contest_participants cp2 WHERE cp2.contest_id = c.id) AS participant_count
+    FROM contests c
+    ORDER BY c.start_time DESC
+  `);
+  const contests = contestsResult.rows;
+  res.render('contests', {
+    contests,
+    username: req.session.username,
+    isStaff: req.session.role === 'root' || req.session.role === 'admin'
+  });
+});
+
+// 显示创建比赛表单（staff）
+app.get('/contests/new', requireAuth, requireStaff, async (req, res) => {
+  // 获取所有题目（包括隐藏）供选择
+  const puzzlesResult = await db.execute('SELECT id, name, is_visible FROM puzzles ORDER BY id');
+  res.render('contest_form', {
+    contest: null,
+    puzzles: puzzlesResult.rows,
+    selectedPuzzleIds: [],
+    isEdit: false,
+    isStaff: true
+  });
+});
+
+// 处理创建比赛
+app.post('/contests', requireAuth, requireStaff, async (req, res) => {
+  const { name, description, start_time, end_time, puzzle_ids = [] } = req.body;
+  if (!name || !start_time || !end_time) {
+    return res.status(400).send('比赛名称、开始时间和结束时间不能为空');
+  }
+
+  const insertResult = await db.execute({
+    sql: 'INSERT INTO contests (name, description, start_time, end_time) VALUES (?, ?, ?, ?)',
+    args: [name.trim(), description ? description.trim() : '', start_time, end_time]
+  });
+  const contestId = insertResult.lastInsertRowid;
+
+  // 插入题目关联
+  if (Array.isArray(puzzle_ids) && puzzle_ids.length > 0) {
+    for (const puzzleId of puzzle_ids) {
+      await db.execute({
+        sql: 'INSERT OR IGNORE INTO contest_puzzles (contest_id, puzzle_id) VALUES (?, ?)',
+        args: [contestId, puzzleId]
+      });
+    }
+  }
+
+  res.redirect('/contests');
+});
+
+// 显示编辑比赛表单（staff）
+app.get('/contests/:id/edit', requireAuth, requireStaff, async (req, res) => {
+  const contestResult = await db.execute({
+    sql: 'SELECT * FROM contests WHERE id = ?',
+    args: [req.params.id]
+  });
+  const contest = contestResult.rows[0];
+  if (!contest) {
+    return res.status(404).send('比赛不存在');
+  }
+
+  // 获取已选题目
+  const selectedResult = await db.execute({
+    sql: 'SELECT puzzle_id FROM contest_puzzles WHERE contest_id = ?',
+    args: [contest.id]
+  });
+  const selectedPuzzleIds = selectedResult.rows.map(row => row.puzzle_id);
+
+  const puzzlesResult = await db.execute('SELECT id, name, is_visible FROM puzzles ORDER BY id');
+  res.render('contest_form', {
+    contest,
+    puzzles: puzzlesResult.rows,
+    selectedPuzzleIds,
+    isEdit: true,
+    isStaff: true
+  });
+});
+
+// 处理编辑比赛
+app.post('/contests/:id/edit', requireAuth, requireStaff, async (req, res) => {
+  const contestId = req.params.id;
+  const { name, description, start_time, end_time, puzzle_ids = [] } = req.body;
+  if (!name || !start_time || !end_time) {
+    return res.status(400).send('比赛名称、开始时间和结束时间不能为空');
+  }
+
+  await db.execute({
+    sql: 'UPDATE contests SET name = ?, description = ?, start_time = ?, end_time = ? WHERE id = ?',
+    args: [name.trim(), description ? description.trim() : '', start_time, end_time, contestId]
+  });
+
+  // 更新题目关联：先删除旧的，再插入新的
+  await db.execute({
+    sql: 'DELETE FROM contest_puzzles WHERE contest_id = ?',
+    args: [contestId]
+  });
+  if (Array.isArray(puzzle_ids) && puzzle_ids.length > 0) {
+    for (const puzzleId of puzzle_ids) {
+      await db.execute({
+        sql: 'INSERT OR IGNORE INTO contest_puzzles (contest_id, puzzle_id) VALUES (?, ?)',
+        args: [contestId, puzzleId]
+      });
+    }
+  }
+
+  res.redirect('/contests');
+});
+
+// 删除比赛
+app.post('/contests/:id/delete', requireAuth, requireStaff, async (req, res) => {
+  await db.execute({
+    sql: 'DELETE FROM contests WHERE id = ?',
+    args: [req.params.id]
+  });
+  res.redirect('/contests');
+});
+
+// 比赛详情
+app.get('/contests/:id', requireAuth, async (req, res) => {
+  const contestResult = await db.execute({
+    sql: 'SELECT * FROM contests WHERE id = ?',
+    args: [req.params.id]
+  });
+  const contest = contestResult.rows[0];
+  if (!contest) {
+    return res.status(404).send('比赛不存在');
+  }
+
+  const isStaff = req.session.role === 'root' || req.session.role === 'admin';
+  const userId = req.session.userId;
+
+  // 检查用户是否报名
+  const participantResult = await db.execute({
+    sql: 'SELECT 1 FROM contest_participants WHERE contest_id = ? AND user_id = ?',
+    args: [contest.id, userId]
+  });
+  const isParticipant = participantResult.rows.length > 0;
+
+  // 获取比赛包含的题目
+  const puzzlesResult = await db.execute(`
+    SELECT p.id, p.name, p.tags, p.is_visible
+    FROM contest_puzzles cp
+    JOIN puzzles p ON cp.puzzle_id = p.id
+    WHERE cp.contest_id = ?
+    ORDER BY p.id
+  `, [contest.id]);
+  const contestPuzzles = puzzlesResult.rows;
+
+  // 比赛状态
+  const now = new Date();
+  const startTime = new Date(contest.start_time);
+  const endTime = new Date(contest.end_time);
+  let status = 'upcoming'; // 未开始
+  if (now >= startTime && now <= endTime) {
+    status = 'active'; // 进行中
+  } else if (now > endTime) {
+    status = 'ended'; // 已结束
+  }
+
+  res.render('contest', {
+    contest,
+    isStaff,
+    isParticipant,
+    contestPuzzles,
+    status,
+    username: req.session.username
+  });
+});
+
+// 报名比赛
+app.post('/contests/:id/register', requireAuth, async (req, res) => {
+  const contestId = req.params.id;
+  const userId = req.session.userId;
+  // 检查比赛是否存在
+  const contestResult = await db.execute({
+    sql: 'SELECT id FROM contests WHERE id = ?',
+    args: [contestId]
+  });
+  if (contestResult.rows.length === 0) {
+    return res.status(404).send('比赛不存在');
+  }
+  // 插入报名（忽略重复）
+  await db.execute({
+    sql: 'INSERT OR IGNORE INTO contest_participants (contest_id, user_id) VALUES (?, ?)',
+    args: [contestId, userId]
+  });
+  res.redirect(`/contests/${contestId}`);
+});
+
+// 取消报名
+app.post('/contests/:id/unregister', requireAuth, async (req, res) => {
+  const contestId = req.params.id;
+  const userId = req.session.userId;
+  await db.execute({
+    sql: 'DELETE FROM contest_participants WHERE contest_id = ? AND user_id = ?',
+    args: [contestId, userId]
+  });
+  res.redirect(`/contests/${contestId}`);
+});
+
+// ==================== 谜题相关路由 ====================
 
 // 显示添加新谜题页面（staff）
 app.get('/puzzles/new', requireAuth, requireStaff, (req, res) => {
@@ -226,7 +495,7 @@ app.get('/puzzles/new', requireAuth, requireStaff, (req, res) => {
   });
 });
 
-// 处理添加谜题（staff）
+// 处理添加谜题
 app.post('/puzzles', requireAuth, requireStaff, async (req, res) => {
   const {
     name = '',
@@ -316,7 +585,7 @@ app.get('/puzzles/:id/edit', requireAuth, requireStaff, async (req, res) => {
   });
 });
 
-// 处理编辑谜题（staff）
+// 处理编辑谜题
 app.post('/puzzles/:id/edit', requireAuth, requireStaff, async (req, res) => {
   const puzzleId = req.params.id;
   const puzzleResult = await db.execute({
@@ -431,10 +700,9 @@ app.get('/puzzles/:id', requireAuth, async (req, res) => {
     return res.status(404).send('谜题不存在');
   }
 
-  const isRoot = req.session.role === 'root';
-  const isAdmin = req.session.role === 'admin';
-  const isStaff = isRoot || isAdmin;
-  if (!isStaff && puzzle.is_visible !== 1) {
+  // 权限检查
+  const allowed = await canUserViewPuzzle(req.session.userId, req.session.role, puzzle.id);
+  if (!allowed) {
     return res.status(404).send('谜题不存在或已隐藏');
   }
 
@@ -450,7 +718,7 @@ app.get('/puzzles/:id', requireAuth, async (req, res) => {
   });
   const hints = hintsResult.rows;
 
-  // 处理 Markdown 图片语法
+  // 处理 Markdown 图片
   const descriptionHtml = renderMarkdownImages(puzzle.description);
   const flavorTextHtml = renderMarkdownImages(puzzle.flavor_text);
   const hintsWithHtml = hints.map(hint => ({
@@ -472,9 +740,9 @@ app.get('/puzzles/:id', requireAuth, async (req, res) => {
     result,
     intermediateInfo,
     username: req.session.username,
-    isRoot,
-    isAdmin,
-    isStaff
+    isRoot: req.session.role === 'root',
+    isAdmin: req.session.role === 'admin',
+    isStaff: req.session.role === 'root' || req.session.role === 'admin'
   });
 });
 
@@ -489,10 +757,9 @@ app.post('/puzzles/:id/answer', requireAuth, async (req, res) => {
     return res.status(404).send('谜题不存在');
   }
 
-  const isRoot = req.session.role === 'root';
-  const isAdmin = req.session.role === 'admin';
-  const isStaff = isRoot || isAdmin;
-  if (!isStaff && puzzle.is_visible !== 1) {
+  // 权限检查
+  const allowed = await canUserViewPuzzle(req.session.userId, req.session.role, puzzle.id);
+  if (!allowed) {
     return res.status(404).send('谜题不存在或已隐藏');
   }
 
@@ -518,7 +785,7 @@ app.post('/puzzles/:id/answer', requireAuth, async (req, res) => {
   return res.redirect(`/puzzles/${puzzle.id}?result=incorrect`);
 });
 
-// 用户管理页面（staff）
+// ==================== 用户管理（原有） ====================
 app.get('/admin/users', requireAuth, requireStaff, async (req, res) => {
   const usersResult = await db.execute('SELECT id, username, email, is_approved, role FROM users ORDER BY id');
   res.render('admin_users', {
@@ -528,7 +795,6 @@ app.get('/admin/users', requireAuth, requireStaff, async (req, res) => {
   });
 });
 
-// 批准用户（staff）
 app.post('/admin/users/:id/approve', requireAuth, requireStaff, async (req, res) => {
   const userId = req.params.id;
   const userResult = await db.execute({
@@ -549,7 +815,6 @@ app.post('/admin/users/:id/approve', requireAuth, requireStaff, async (req, res)
   res.redirect('/admin/users');
 });
 
-// 删除用户（staff，但有角色限制）
 app.post('/admin/users/:id/delete', requireAuth, requireStaff, async (req, res) => {
   const userId = req.params.id;
   const userResult = await db.execute({
@@ -578,7 +843,6 @@ app.post('/admin/users/:id/delete', requireAuth, requireStaff, async (req, res) 
   res.redirect('/admin/users');
 });
 
-// 设置/取消管理员（仅 root）
 app.post('/admin/users/:id/set-admin', requireAuth, requireRoot, async (req, res) => {
   const userId = req.params.id;
   const { action } = req.body;
