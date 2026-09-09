@@ -324,11 +324,19 @@ app.get('/contests/new', requireAuth, requireStaff, async (req, res) => {
 });
 
 // 处理创建比赛
+// 处理创建比赛
 app.post('/contests', requireAuth, requireStaff, async (req, res) => {
-  const { name, description, start_time, end_time, puzzle_ids = [] } = req.body;
+  const { name, description, start_time, end_time, puzzle_ids } = req.body;
   if (!name || !start_time || !end_time) {
     return res.status(400).send('比赛名称、开始时间和结束时间不能为空');
   }
+
+  // 确保 puzzle_ids 是数组（若未传递则设为空数组，若为字符串则包装为数组）
+  let puzzleIds = Array.isArray(puzzle_ids) ? puzzle_ids : [];
+  if (typeof puzzle_ids === 'string') {
+    puzzleIds = [puzzle_ids];
+  }
+  console.log('创建比赛 puzzleIds:', puzzleIds); // 调试用，可删除
 
   const insertResult = await db.execute({
     sql: 'INSERT INTO contests (name, description, start_time, end_time) VALUES (?, ?, ?, ?)',
@@ -337,13 +345,13 @@ app.post('/contests', requireAuth, requireStaff, async (req, res) => {
   const contestId = insertResult.lastInsertRowid;
 
   // 插入题目关联
-  if (Array.isArray(puzzle_ids) && puzzle_ids.length > 0) {
-    for (const puzzleId of puzzle_ids) {
-      await db.execute({
-        sql: 'INSERT OR IGNORE INTO contest_puzzles (contest_id, puzzle_id) VALUES (?, ?)',
-        args: [contestId, puzzleId]
-      });
-    }
+  for (const puzzleId of puzzleIds) {
+    const numericPuzzleId = parseInt(puzzleId, 10);
+    if (isNaN(numericPuzzleId)) continue;
+    await db.execute({
+      sql: 'INSERT OR IGNORE INTO contest_puzzles (contest_id, puzzle_id) VALUES (?, ?)',
+      args: [contestId, numericPuzzleId]
+    });
   }
 
   res.redirect('/contests');
@@ -378,11 +386,17 @@ app.get('/contests/:id/edit', requireAuth, requireStaff, async (req, res) => {
 });
 
 // 处理编辑比赛
+// 处理编辑比赛
 app.post('/contests/:id/edit', requireAuth, requireStaff, async (req, res) => {
   const contestId = req.params.id;
-  const { name, description, start_time, end_time, puzzle_ids = [] } = req.body;
+  const { name, description, start_time, end_time, puzzle_ids } = req.body;
   if (!name || !start_time || !end_time) {
     return res.status(400).send('比赛名称、开始时间和结束时间不能为空');
+  }
+
+  let puzzleIds = Array.isArray(puzzle_ids) ? puzzle_ids : [];
+  if (typeof puzzle_ids === 'string') {
+    puzzleIds = [puzzle_ids];
   }
 
   await db.execute({
@@ -395,13 +409,13 @@ app.post('/contests/:id/edit', requireAuth, requireStaff, async (req, res) => {
     sql: 'DELETE FROM contest_puzzles WHERE contest_id = ?',
     args: [contestId]
   });
-  if (Array.isArray(puzzle_ids) && puzzle_ids.length > 0) {
-    for (const puzzleId of puzzle_ids) {
-      await db.execute({
-        sql: 'INSERT OR IGNORE INTO contest_puzzles (contest_id, puzzle_id) VALUES (?, ?)',
-        args: [contestId, puzzleId]
-      });
-    }
+  for (const puzzleId of puzzleIds) {
+    const numericPuzzleId = parseInt(puzzleId, 10);
+    if (isNaN(numericPuzzleId)) continue;
+    await db.execute({
+      sql: 'INSERT OR IGNORE INTO contest_puzzles (contest_id, puzzle_id) VALUES (?, ?)',
+      args: [contestId, numericPuzzleId]
+    });
   }
 
   res.redirect('/contests');
