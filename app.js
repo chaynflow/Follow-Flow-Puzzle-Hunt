@@ -276,20 +276,38 @@ app.get('/dashboard', requireAuth, async (req, res) => {
 // ==================== 比赛相关路由 ====================
 
 // 比赛列表（所有已登录用户）
+// 比赛列表
 app.get('/contests', requireAuth, async (req, res) => {
-  const contestsResult = await db.execute(`
-    SELECT c.*,
-           (SELECT COUNT(*) FROM contest_puzzles cp WHERE cp.contest_id = c.id) AS puzzle_count,
-           (SELECT COUNT(*) FROM contest_participants cp2 WHERE cp2.contest_id = c.id) AS participant_count
-    FROM contests c
-    ORDER BY c.start_time DESC
-  `);
-  const contests = contestsResult.rows;
-  res.render('contests', {
-    contests,
-    username: req.session.username,
-    isStaff: req.session.role === 'root' || req.session.role === 'admin'
-  });
+  try {
+    const contestsResult = await db.execute(`
+      SELECT c.*,
+             (SELECT COUNT(*) FROM contest_puzzles cp WHERE cp.contest_id = c.id) AS puzzle_count,
+             (SELECT COUNT(*) FROM contest_participants cp2 WHERE cp2.contest_id = c.id) AS participant_count
+      FROM contests c
+      ORDER BY c.start_time DESC
+    `);
+    const contests = contestsResult.rows;
+
+    // 在服务端计算每个比赛的状态
+    const now = new Date();
+    const contestsWithStatus = contests.map(contest => {
+      const start = new Date(contest.start_time);
+      const end = new Date(contest.end_time);
+      let status = 'upcoming';
+      if (now >= start && now <= end) status = 'active';
+      else if (now > end) status = 'ended';
+      return { ...contest, status };
+    });
+
+    res.render('contests', {
+      contests: contestsWithStatus,
+      username: req.session.username,
+      isStaff: req.session.role === 'root' || req.session.role === 'admin'
+    });
+  } catch (err) {
+    console.error('加载比赛列表错误:', err);
+    res.status(500).send('加载比赛列表失败，请检查服务器日志');
+  }
 });
 
 // 显示创建比赛表单（staff）
