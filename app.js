@@ -607,6 +607,7 @@ app.get('/competitions/new', requireAuth, requireStaff, async (req, res) => {
 });
 
 // 处理创建比赛（staff）
+// 处理创建比赛（staff）
 app.post('/competitions', requireAuth, requireStaff, async (req, res) => {
   const { name, start_time, end_time, puzzle_ids = [] } = req.body;
   if (!name || !name.trim()) {
@@ -619,9 +620,13 @@ app.post('/competitions', requireAuth, requireStaff, async (req, res) => {
     return res.status(400).send('结束时间必须晚于开始时间');
   }
 
+  // 转换为 ISO 字符串存储，确保时区一致
+  const startISO = new Date(start_time).toISOString();
+  const endISO = new Date(end_time).toISOString();
+
   const insertResult = await db.execute({
     sql: 'INSERT INTO competitions (name, start_time, end_time) VALUES (?, ?, ?)',
-    args: [name.trim(), start_time, end_time]
+    args: [name.trim(), startISO, endISO]
   });
   const compId = insertResult.lastInsertRowid;
 
@@ -754,6 +759,7 @@ app.get('/competitions/:id/edit', requireAuth, requireStaff, async (req, res) =>
 });
 
 // 处理编辑比赛（staff）
+// 处理编辑比赛（staff）
 app.post('/competitions/:id/edit', requireAuth, requireStaff, async (req, res) => {
   const compId = req.params.id;
   const { name, start_time, end_time, puzzle_ids = [] } = req.body;
@@ -767,10 +773,14 @@ app.post('/competitions/:id/edit', requireAuth, requireStaff, async (req, res) =
     return res.status(400).send('结束时间必须晚于开始时间');
   }
 
+  // 转换为 ISO 字符串存储
+  const startISO = new Date(start_time).toISOString();
+  const endISO = new Date(end_time).toISOString();
+
   // 更新比赛信息
   await db.execute({
     sql: 'UPDATE competitions SET name = ?, start_time = ?, end_time = ? WHERE id = ?',
-    args: [name.trim(), start_time, end_time, compId]
+    args: [name.trim(), startISO, endISO, compId]
   });
 
   // 重新设置题目关联
