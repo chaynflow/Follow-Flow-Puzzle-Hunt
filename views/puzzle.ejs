@@ -108,6 +108,9 @@
         <% } %>
         <form action="/puzzles/<%= puzzle.id %>/answer" method="POST">
           <input type="text" name="answer" placeholder="输入答案" required>
+          <% if (typeof competitionId !== 'undefined' && competitionId) { %>
+            <input type="hidden" name="competition_id" value="<%= competitionId %>">
+          <% } %>
           <button type="submit">提交答案</button>
         </form>
       </div>
