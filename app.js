@@ -633,8 +633,8 @@ app.post('/competitions', requireAuth, requireStaff, async (req, res) => {
   // 插入题目关联
   if (Array.isArray(puzzle_ids) && puzzle_ids.length > 0) {
     for (let i = 0; i < puzzle_ids.length; i++) {
-      const pid = puzzle_ids[i];
-      if (pid) {
+      const pid = parseInt(puzzle_ids[i], 10);
+      if (!isNaN(pid)) {
         await db.execute({
           sql: 'INSERT OR IGNORE INTO competition_puzzles (competition_id, puzzle_id, sort_order) VALUES (?, ?, ?)',
           args: [compId, pid, i]
@@ -647,8 +647,13 @@ app.post('/competitions', requireAuth, requireStaff, async (req, res) => {
 });
 
 // 显示比赛详情
+// 显示比赛详情
 app.get('/competitions/:id', requireAuth, async (req, res) => {
-  const compId = req.params.id;
+  const compId = parseInt(req.params.id, 10);
+  if (isNaN(compId)) {
+    return res.status(400).send('无效的比赛ID');
+  }
+
   const compResult = await db.execute({
     sql: 'SELECT * FROM competitions WHERE id = ?',
     args: [compId]
@@ -669,14 +674,17 @@ app.get('/competitions/:id', requireAuth, async (req, res) => {
   const isRegistered = regResult.rows.length > 0;
 
   // 获取题目列表
-  const puzzlesResult = await db.execute(`
-    SELECT p.id, p.name, p.tags, p.is_visible,
-           cp.sort_order
-    FROM competition_puzzles cp
-    JOIN puzzles p ON p.id = cp.puzzle_id
-    WHERE cp.competition_id = ?
-    ORDER BY cp.sort_order, p.id
-  `, [compId]);
+  const puzzlesResult = await db.execute({
+    sql: `
+      SELECT p.id, p.name, p.tags, p.is_visible,
+             cp.sort_order
+      FROM competition_puzzles cp
+      JOIN puzzles p ON p.id = cp.puzzle_id
+      WHERE cp.competition_id = ?
+      ORDER BY cp.sort_order, p.id
+    `,
+    args: [compId]
+  });
   const puzzles = puzzlesResult.rows;
 
   const now = new Date();
@@ -684,7 +692,6 @@ app.get('/competitions/:id', requireAuth, async (req, res) => {
   const endTime = new Date(competition.end_time);
   const isActive = now >= startTime && now <= endTime;
 
-  // 判断用户是否可以查看题目（已报名且比赛进行中）
   let canViewPuzzles = false;
   if (isStaff) canViewPuzzles = true;
   else if (isRegistered && isActive) canViewPuzzles = true;
@@ -790,8 +797,8 @@ app.post('/competitions/:id/edit', requireAuth, requireStaff, async (req, res) =
   });
   if (Array.isArray(puzzle_ids) && puzzle_ids.length > 0) {
     for (let i = 0; i < puzzle_ids.length; i++) {
-      const pid = puzzle_ids[i];
-      if (pid) {
+      const pid = parseInt(puzzle_ids[i], 10);
+      if (!isNaN(pid)) {
         await db.execute({
           sql: 'INSERT OR IGNORE INTO competition_puzzles (competition_id, puzzle_id, sort_order) VALUES (?, ?, ?)',
           args: [compId, pid, i]
