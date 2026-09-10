@@ -9,9 +9,13 @@
     .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
     .back-link { color: #007bff; text-decoration: none; }
     .form-container { background: #f8f9fa; padding: 20px; border-radius: 5px; }
-    .form-container input, .form-container select { width: 100%; padding: 8px; margin: 8px 0; box-sizing: border-box; }
-    .puzzle-checkboxes { max-height: 300px; overflow-y: auto; border: 1px solid #ccc; padding: 10px; background: white; }
-    .form-container button { padding: 10px 20px; background: #28a745; color: white; border: none; cursor: pointer; margin-top: 15px; }
+    .form-container input, .form-container textarea { width: 100%; padding: 8px; margin: 8px 0; box-sizing: border-box; }
+    .rule-row { border: 1px solid #ccc; padding: 10px; margin-bottom: 10px; border-radius: 5px; background: white; }
+    .rule-row input { display: inline-block; margin-right: 5px; }
+    .rule-row .remove-btn { background: #dc3545; color: white; border: none; padding: 5px 10px; cursor: pointer; border-radius: 3px; }
+    .add-rule-btn { background: #007bff; color: white; border: none; padding: 8px 15px; cursor: pointer; border-radius: 3px; margin-top: 10px; }
+    .form-container button[type="submit"] { margin-top: 15px; background: #28a745; color: white; border: none; padding: 10px 20px; cursor: pointer; border-radius: 3px; }
+    .help-text { font-size: 0.85em; color: #666; margin-top: 2px; }
   </style>
 </head>
 <body>
@@ -21,7 +25,7 @@
   </div>
 
   <div class="form-container">
-    <form action="<%= isEdit ? `/competitions/${competition.id}/edit` : '/competitions' %>" method="POST">
+    <form action="<%= isEdit ? `/competitions/${competition.id}/edit` : '/competitions' %>" method="POST" id="competitionForm">
       <div>
         <label>比赛名称（必填）</label>
         <input type="text" name="name" value="<%= competition ? competition.name : '' %>" required>
@@ -34,23 +38,61 @@
         <label>结束时间（必填）</label>
         <input type="datetime-local" name="end_time" value="<%= competition ? competition.end_time.slice(0,16) : '' %>" required>
       </div>
+
       <div>
-        <label>包含题目（选择多个）</label>
-        <div class="puzzle-checkboxes">
-          <% allPuzzles.forEach(p => { %>
-            <div>
-              <label>
-                <input type="checkbox" name="puzzle_ids" value="<%= p.id %>"
-                  <% if (selectedPuzzleIds.includes(p.id)) { %>checked<% } %>>
-                [<%= p.id %>] <%= p.name %> <% if (!p.is_visible) { %><span style="color:red;">[隐藏]</span><% } %>
-              </label>
+        <label>题目规则（每个规则对应一个题目）</label>
+        <div id="rulesContainer">
+          <% if (rules.length > 0) { %>
+            <% rules.forEach((rule, idx) => { %>
+              <div class="rule-row">
+                <input type="text" name="puzzle_ids[]" placeholder="题目编号" value="<%= rule.puzzle_id %>" required>
+                <input type="text" name="unlock_ids[]" placeholder="前置题目编号（逗号分隔，留空则比赛开始即可见）" value="<%= rule.unlock_puzzle_ids || '' %>">
+                <input type="text" name="unlock_counts[]" placeholder="所需完成数量" value="<%= rule.unlock_required_count || '' %>">
+                <button type="button" class="remove-btn">删除</button>
+              </div>
+            <% }) %>
+          <% } else { %>
+            <div class="rule-row">
+              <input type="text" name="puzzle_ids[]" placeholder="题目编号" required>
+              <input type="text" name="unlock_ids[]" placeholder="前置题目编号（逗号分隔，留空则比赛开始即可见）">
+              <input type="text" name="unlock_counts[]" placeholder="所需完成数量">
+              <button type="button" class="remove-btn">删除</button>
             </div>
-          <% }) %>
+          <% } %>
         </div>
-        <small>可多选，包括隐藏题目。隐藏题目在比赛进行中且用户报名后可查看。</small>
+        <button type="button" id="addRuleBtn" class="add-rule-btn">添加题目规则</button>
+        <div class="help-text">每个规则：目标题目ID；前置题目ID（逗号分隔）；需要在前置中完成的数量。留空前置则比赛开始后即可访问。</div>
       </div>
+
       <button type="submit"><%= isEdit ? '保存修改' : '创建比赛' %></button>
     </form>
   </div>
+
+  <script>
+    // 动态添加规则行
+    document.getElementById('addRuleBtn').addEventListener('click', function() {
+      const container = document.getElementById('rulesContainer');
+      const row = document.createElement('div');
+      row.className = 'rule-row';
+      row.innerHTML = `
+        <input type="text" name="puzzle_ids[]" placeholder="题目编号" required>
+        <input type="text" name="unlock_ids[]" placeholder="前置题目编号（逗号分隔，留空则比赛开始即可见）">
+        <input type="text" name="unlock_counts[]" placeholder="所需完成数量">
+        <button type="button" class="remove-btn">删除</button>
+      `;
+      container.appendChild(row);
+      attachRemoveHandlers();
+    });
+
+    // 绑定删除事件
+    function attachRemoveHandlers() {
+      document.querySelectorAll('.remove-btn').forEach(btn => {
+        btn.onclick = function() { this.parentElement.remove(); };
+      });
+    }
+
+    // 初始绑定
+    attachRemoveHandlers();
+  </script>
 </body>
 </html>

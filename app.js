@@ -443,6 +443,87 @@ async function getPuzzleWithDetails(puzzleId) {
   };
 }
 
+// 检查用户是否可以查看指定谜题（基于可见性、比赛报名和解锁条件）
+async function canUserViewPuzzle(userId, puzzleId, isStaff, competitionId = null) {
+  if (isStaff) return true;
+
+  const puzzleResult = await db.execute({
+    sql: 'SELECT is_visible FROM puzzles WHERE id = ?',
+    args: [puzzleId]
+  });
+  if (puzzleResult.rows.length === 0) return false;
+  const puzzle = puzzleResult.rows[0];
+
+  // 如果公开可见，直接允许
+  if (puzzle.is_visible === 1) return true;
+
+  // 否则需要检查比赛
+  const now = new Date().toISOString();
+  let competitionIds = [];
+  if (competitionId) {
+    // 检查指定比赛
+    const compResult = await db.execute({
+      sql: `SELECT c.id
+            FROM competitions c
+            JOIN registrations r ON r.competition_id = c.id AND r.user_id = ?
+            WHERE c.id = ?
+              AND c.start_time <= ?
+              AND c.end_time >= ?`,
+      args: [userId, competitionId, now, now]
+    });
+    if (compResult.rows.length > 0) {
+      competitionIds = [competitionId];
+    }
+  } else {
+    // 检查所有已报名的进行中的比赛
+    const compResult = await db.execute({
+      sql: `SELECT DISTINCT c.id
+            FROM competitions c
+            JOIN registrations r ON r.competition_id = c.id AND r.user_id = ?
+            WHERE c.start_time <= ?
+              AND c.end_time >= ?`,
+      args: [userId, now, now]
+    });
+    competitionIds = compResult.rows.map(r => r.id);
+  }
+
+  for (const compId of competitionIds) {
+    // 检查该比赛是否包含此题目
+    const cpResult = await db.execute({
+      sql: `SELECT * FROM competition_puzzles
+            WHERE competition_id = ? AND puzzle_id = ?`,
+      args: [compId, puzzleId]
+    });
+    if (cpResult.rows.length === 0) continue;
+    const cp = cpResult.rows[0];
+
+    // 检查解锁条件
+    if (cp.unlock_puzzle_ids && cp.unlock_puzzle_ids.trim() !== '') {
+      const prereqIds = cp.unlock_puzzle_ids.split(',').map(s => parseInt(s.trim(), 10)).filter(id => !isNaN(id));
+      const required = cp.unlock_required_count || 0;
+      if (prereqIds.length === 0 || required <= 0) {
+        // 无有效前置条件，视为可访问
+        return true;
+      }
+      // 查询用户在当前比赛中已解答的前置题目数量
+      const solvedResult = await db.execute({
+        sql: `SELECT COUNT(*) AS cnt FROM competition_answers
+              WHERE competition_id = ? AND user_id = ? AND puzzle_id IN (${prereqIds.join(',')})`,
+        args: [compId, userId]
+      });
+      const solvedCount = solvedResult.rows[0].cnt;
+      if (solvedCount >= required) {
+        return true;
+      }
+    } else {
+      // 无前置条件，比赛进行中即可访问
+      return true;
+    }
+  }
+
+  return false;
+}
+
 // 谜题详情页
 app.get('/puzzles/:id', requireAuth, async (req, res) => {
   const puzzleId = req.params.id;
@@ -455,32 +536,10 @@ app.get('/puzzles/:id', requireAuth, async (req, res) => {
   const isRoot = req.session.role === 'root';
   const isAdmin = req.session.role === 'admin';
   const isStaff = isRoot || isAdmin;
+  const competitionId = req.query.competition_id ? parseInt(req.query.competition_id, 10) : null;
 
-  let canViewPuzzle = false;
-  if (isStaff) {
-    canViewPuzzle = true;
-  } else if (puzzle.is_visible === 1) {
-    canViewPuzzle = true;
-  } else {
-    // 检查用户是否报名了包含该题目的进行中的比赛
-    const userId = req.session.userId;
-    const now = new Date().toISOString();
-    const compResult = await db.execute({
-      sql: `SELECT c.id
-            FROM competitions c
-            JOIN competition_puzzles cp ON c.id = cp.competition_id
-            JOIN registrations r ON r.competition_id = c.id AND r.user_id = ?
-            WHERE cp.puzzle_id = ?
-              AND c.start_time <= ?
-              AND c.end_time >= ?`,
-      args: [userId, puzzleId, now, now]
-    });
-    if (compResult.rows.length > 0) {
-      canViewPuzzle = true;
-    }
-  }
-
-  if (!canViewPuzzle) {
+  const canView = await canUserViewPuzzle(req.session.userId, puzzleId, isStaff, competitionId);
+  if (!canView) {
     return res.status(404).send('谜题不存在或已隐藏');
   }
 
@@ -508,7 +567,8 @@ app.get('/puzzles/:id', requireAuth, async (req, res) => {
     isRoot,
     isAdmin,
     isStaff,
-    canViewPuzzle
+    canViewPuzzle: true,
+    competitionId
   });
 });
 
@@ -524,31 +584,10 @@ app.post('/puzzles/:id/answer', requireAuth, async (req, res) => {
   const isRoot = req.session.role === 'root';
   const isAdmin = req.session.role === 'admin';
   const isStaff = isRoot || isAdmin;
+  const competitionId = req.body.competition_id ? parseInt(req.body.competition_id, 10) : null;
 
-  let canViewPuzzle = false;
-  if (isStaff) {
-    canViewPuzzle = true;
-  } else if (puzzle.is_visible === 1) {
-    canViewPuzzle = true;
-  } else {
-    const userId = req.session.userId;
-    const now = new Date().toISOString();
-    const compResult = await db.execute({
-      sql: `SELECT c.id
-            FROM competitions c
-            JOIN competition_puzzles cp ON c.id = cp.competition_id
-            JOIN registrations r ON r.competition_id = c.id AND r.user_id = ?
-            WHERE cp.puzzle_id = ?
-              AND c.start_time <= ?
-              AND c.end_time >= ?`,
-      args: [userId, puzzleId, now, now]
-    });
-    if (compResult.rows.length > 0) {
-      canViewPuzzle = true;
-    }
-  }
-
-  if (!canViewPuzzle) {
+  const canView = await canUserViewPuzzle(req.session.userId, puzzleId, isStaff, competitionId);
+  if (!canView) {
     return res.status(404).send('谜题不存在或已隐藏');
   }
 
@@ -556,7 +595,25 @@ app.post('/puzzles/:id/answer', requireAuth, async (req, res) => {
   const finalAnswer = puzzle.answer.trim().toLowerCase();
 
   if (submittedAnswer === finalAnswer) {
-    return res.redirect(`/puzzles/${puzzle.id}?result=correct`);
+    // 记录比赛解答（如果提供了 competition_id）
+    if (competitionId) {
+      const userId = req.session.userId;
+      // 检查是否已经在比赛中报名（可选）
+      const regResult = await db.execute({
+        sql: 'SELECT * FROM registrations WHERE competition_id = ? AND user_id = ?',
+        args: [competitionId, userId]
+      });
+      if (regResult.rows.length > 0) {
+        // 插入或更新解答记录
+        await db.execute({
+          sql: `INSERT INTO competition_answers (competition_id, user_id, puzzle_id)
+                VALUES (?, ?, ?)
+                ON CONFLICT(competition_id, user_id, puzzle_id) DO NOTHING`,
+          args: [competitionId, userId, puzzleId]
+        });
+      }
+    }
+    return res.redirect(`/puzzles/${puzzleId}?result=correct&competition_id=${competitionId || ''}`);
   }
 
   const interResult = await db.execute({
@@ -567,11 +624,11 @@ app.post('/puzzles/:id/answer', requireAuth, async (req, res) => {
     if (submittedAnswer === inter.answer.trim().toLowerCase()) {
       const info = inter.info || '';
       const infoParam = encodeURIComponent(info);
-      return res.redirect(`/puzzles/${puzzle.id}?result=intermediate&intermediate_info=${infoParam}`);
+      return res.redirect(`/puzzles/${puzzleId}?result=intermediate&intermediate_info=${infoParam}&competition_id=${competitionId || ''}`);
     }
   }
 
-  return res.redirect(`/puzzles/${puzzle.id}?result=incorrect`);
+  return res.redirect(`/puzzles/${puzzleId}?result=incorrect&competition_id=${competitionId || ''}`);
 });
 
 // ================= 比赛相关路由 =================
@@ -594,12 +651,10 @@ app.get('/competitions', requireAuth, async (req, res) => {
 });
 
 // 显示创建比赛表单（staff）
-app.get('/competitions/new', requireAuth, requireStaff, async (req, res) => {
-  const puzzlesResult = await db.execute('SELECT id, name, is_visible FROM puzzles ORDER BY id');
+app.get('/competitions/new', requireAuth, requireStaff, (req, res) => {
   res.render('competition_form', {
     competition: null,
-    allPuzzles: puzzlesResult.rows,
-    selectedPuzzleIds: [],
+    rules: [],
     isEdit: false,
     username: req.session.username,
     isStaff: true
@@ -607,9 +662,8 @@ app.get('/competitions/new', requireAuth, requireStaff, async (req, res) => {
 });
 
 // 处理创建比赛（staff）
-// 处理创建比赛（staff）
 app.post('/competitions', requireAuth, requireStaff, async (req, res) => {
-  const { name, start_time, end_time, puzzle_ids = [] } = req.body;
+  const { name, start_time, end_time } = req.body;
   if (!name || !name.trim()) {
     return res.status(400).send('比赛名称不能为空');
   }
@@ -620,7 +674,6 @@ app.post('/competitions', requireAuth, requireStaff, async (req, res) => {
     return res.status(400).send('结束时间必须晚于开始时间');
   }
 
-  // 转换为 ISO 字符串存储，确保时区一致
   const startISO = new Date(start_time).toISOString();
   const endISO = new Date(end_time).toISOString();
 
@@ -630,23 +683,106 @@ app.post('/competitions', requireAuth, requireStaff, async (req, res) => {
   });
   const compId = insertResult.lastInsertRowid;
 
-  // 插入题目关联
-  if (Array.isArray(puzzle_ids) && puzzle_ids.length > 0) {
-    for (let i = 0; i < puzzle_ids.length; i++) {
-      const pid = parseInt(puzzle_ids[i], 10);
-      if (!isNaN(pid)) {
-        await db.execute({
-          sql: 'INSERT OR IGNORE INTO competition_puzzles (competition_id, puzzle_id, sort_order) VALUES (?, ?, ?)',
-          args: [compId, pid, i]
-        });
-      }
+  // 处理题目规则
+  const puzzleIds = req.body.puzzle_ids || [];
+  const unlockIds = req.body.unlock_ids || [];
+  const unlockCounts = req.body.unlock_counts || [];
+
+  for (let i = 0; i < puzzleIds.length; i++) {
+    const pid = parseInt(puzzleIds[i], 10);
+    if (!isNaN(pid)) {
+      const unlock = unlockIds[i] ? unlockIds[i].trim() : '';
+      const count = parseInt(unlockCounts[i], 10) || 0;
+      await db.execute({
+        sql: `INSERT OR IGNORE INTO competition_puzzles
+              (competition_id, puzzle_id, sort_order, unlock_puzzle_ids, unlock_required_count)
+              VALUES (?, ?, ?, ?, ?)`,
+        args: [compId, pid, i, unlock, count]
+      });
     }
   }
 
   res.redirect('/competitions');
 });
 
-// 显示比赛详情
+// 显示编辑比赛表单（staff）
+app.get('/competitions/:id/edit', requireAuth, requireStaff, async (req, res) => {
+  const compId = parseInt(req.params.id, 10);
+  const compResult = await db.execute({
+    sql: 'SELECT * FROM competitions WHERE id = ?',
+    args: [compId]
+  });
+  const competition = compResult.rows[0];
+  if (!competition) {
+    return res.status(404).send('比赛不存在');
+  }
+
+  // 获取现有规则
+  const rulesResult = await db.execute({
+    sql: 'SELECT * FROM competition_puzzles WHERE competition_id = ? ORDER BY sort_order, puzzle_id',
+    args: [compId]
+  });
+  const rules = rulesResult.rows;
+
+  res.render('competition_form', {
+    competition,
+    rules,
+    isEdit: true,
+    username: req.session.username,
+    isStaff: true
+  });
+});
+
+// 处理编辑比赛（staff）
+app.post('/competitions/:id/edit', requireAuth, requireStaff, async (req, res) => {
+  const compId = parseInt(req.params.id, 10);
+  const { name, start_time, end_time } = req.body;
+  if (!name || !name.trim()) {
+    return res.status(400).send('比赛名称不能为空');
+  }
+  if (!start_time || !end_time) {
+    return res.status(400).send('请设置开始和结束时间');
+  }
+  if (new Date(start_time) >= new Date(end_time)) {
+    return res.status(400).send('结束时间必须晚于开始时间');
+  }
+
+  const startISO = new Date(start_time).toISOString();
+  const endISO = new Date(end_time).toISOString();
+
+  await db.execute({
+    sql: 'UPDATE competitions SET name = ?, start_time = ?, end_time = ? WHERE id = ?',
+    args: [name.trim(), startISO, endISO, compId]
+  });
+
+  // 删除旧的规则
+  await db.execute({
+    sql: 'DELETE FROM competition_puzzles WHERE competition_id = ?',
+    args: [compId]
+  });
+
+  // 插入新的规则
+  const puzzleIds = req.body.puzzle_ids || [];
+  const unlockIds = req.body.unlock_ids || [];
+  const unlockCounts = req.body.unlock_counts || [];
+
+  for (let i = 0; i < puzzleIds.length; i++) {
+    const pid = parseInt(puzzleIds[i], 10);
+    if (!isNaN(pid)) {
+      const unlock = unlockIds[i] ? unlockIds[i].trim() : '';
+      const count = parseInt(unlockCounts[i], 10) || 0;
+      await db.execute({
+        sql: `INSERT OR IGNORE INTO competition_puzzles
+              (competition_id, puzzle_id, sort_order, unlock_puzzle_ids, unlock_required_count)
+              VALUES (?, ?, ?, ?, ?)`,
+        args: [compId, pid, i, unlock, count]
+      });
+    }
+  }
+
+  res.redirect(`/competitions/${compId}`);
+});
+
 // 显示比赛详情
 app.get('/competitions/:id', requireAuth, async (req, res) => {
   const compId = parseInt(req.params.id, 10);
@@ -673,35 +809,60 @@ app.get('/competitions/:id', requireAuth, async (req, res) => {
   });
   const isRegistered = regResult.rows.length > 0;
 
-  // 获取题目列表
-  const puzzlesResult = await db.execute({
-    sql: `
-      SELECT p.id, p.name, p.tags, p.is_visible,
-             cp.sort_order
-      FROM competition_puzzles cp
-      JOIN puzzles p ON p.id = cp.puzzle_id
-      WHERE cp.competition_id = ?
-      ORDER BY cp.sort_order, p.id
-    `,
-    args: [compId]
+  // 获取题目规则及用户解答状态
+  const cpResult = await db.execute({
+    sql: `SELECT cp.puzzle_id, cp.unlock_puzzle_ids, cp.unlock_required_count,
+                 p.name, p.tags, p.is_visible,
+                 (SELECT COUNT(*) FROM competition_answers ca
+                  WHERE ca.competition_id = cp.competition_id AND ca.user_id = ? AND ca.puzzle_id = cp.puzzle_id) AS solved
+          FROM competition_puzzles cp
+          JOIN puzzles p ON p.id = cp.puzzle_id
+          WHERE cp.competition_id = ?
+          ORDER BY cp.sort_order, cp.puzzle_id`,
+    args: [userId, compId]
   });
-  const puzzles = puzzlesResult.rows;
+  const rules = cpResult.rows;
 
   const now = new Date();
   const startTime = new Date(competition.start_time);
   const endTime = new Date(competition.end_time);
   const isActive = now >= startTime && now <= endTime;
 
-  let canViewPuzzles = false;
-  if (isStaff) canViewPuzzles = true;
-  else if (isRegistered && isActive) canViewPuzzles = true;
+  // 计算每个题目的可访问性
+  const puzzlesToDisplay = rules.map(rule => {
+    const solved = rule.solved > 0;
+    let canView = false;
+    if (isStaff) canView = true;
+    else if (isRegistered && isActive) {
+      if (!rule.unlock_puzzle_ids || rule.unlock_puzzle_ids.trim() === '') {
+        canView = true;
+      } else {
+        const prereqIds = rule.unlock_puzzle_ids.split(',').map(s => parseInt(s.trim(), 10)).filter(id => !isNaN(id));
+        const required = rule.unlock_required_count || 0;
+        if (prereqIds.length === 0 || required <= 0) {
+          canView = true;
+        } else {
+          // 查询用户已解答的前置题目数量
+          const solvedCount = rules.filter(r => prereqIds.includes(r.puzzle_id) && r.solved > 0).length;
+          canView = solvedCount >= required;
+        }
+      }
+    }
+    return {
+      id: rule.puzzle_id,
+      name: rule.name,
+      tags: rule.tags,
+      is_visible: rule.is_visible,
+      solved,
+      canView
+    };
+  });
 
   res.render('competition_detail', {
     competition,
-    puzzles,
+    puzzles: puzzlesToDisplay,
     isRegistered,
     isActive,
-    canViewPuzzles,
     isStaff,
     username: req.session.username
   });
@@ -709,9 +870,8 @@ app.get('/competitions/:id', requireAuth, async (req, res) => {
 
 // 报名比赛
 app.post('/competitions/:id/register', requireAuth, async (req, res) => {
-  const compId = req.params.id;
+  const compId = parseInt(req.params.id, 10);
   const userId = req.session.userId;
-  // 检查比赛是否存在
   const compResult = await db.execute({
     sql: 'SELECT * FROM competitions WHERE id = ?',
     args: [compId]
@@ -719,7 +879,6 @@ app.post('/competitions/:id/register', requireAuth, async (req, res) => {
   if (compResult.rows.length === 0) {
     return res.status(404).send('比赛不存在');
   }
-  // 检查是否已报名
   const regResult = await db.execute({
     sql: 'SELECT * FROM registrations WHERE competition_id = ? AND user_id = ?',
     args: [compId, userId]
@@ -733,86 +892,9 @@ app.post('/competitions/:id/register', requireAuth, async (req, res) => {
   res.redirect(`/competitions/${compId}`);
 });
 
-// 显示编辑比赛表单（staff）
-app.get('/competitions/:id/edit', requireAuth, requireStaff, async (req, res) => {
-  const compId = req.params.id;
-  const compResult = await db.execute({
-    sql: 'SELECT * FROM competitions WHERE id = ?',
-    args: [compId]
-  });
-  const competition = compResult.rows[0];
-  if (!competition) {
-    return res.status(404).send('比赛不存在');
-  }
-
-  // 获取已选题目ID
-  const selectedResult = await db.execute({
-    sql: 'SELECT puzzle_id FROM competition_puzzles WHERE competition_id = ?',
-    args: [compId]
-  });
-  const selectedPuzzleIds = selectedResult.rows.map(r => r.puzzle_id);
-
-  // 获取所有题目
-  const puzzlesResult = await db.execute('SELECT id, name, is_visible FROM puzzles ORDER BY id');
-
-  res.render('competition_form', {
-    competition,
-    allPuzzles: puzzlesResult.rows,
-    selectedPuzzleIds,
-    isEdit: true,
-    username: req.session.username,
-    isStaff: true
-  });
-});
-
-// 处理编辑比赛（staff）
-// 处理编辑比赛（staff）
-app.post('/competitions/:id/edit', requireAuth, requireStaff, async (req, res) => {
-  const compId = req.params.id;
-  const { name, start_time, end_time, puzzle_ids = [] } = req.body;
-  if (!name || !name.trim()) {
-    return res.status(400).send('比赛名称不能为空');
-  }
-  if (!start_time || !end_time) {
-    return res.status(400).send('请设置开始和结束时间');
-  }
-  if (new Date(start_time) >= new Date(end_time)) {
-    return res.status(400).send('结束时间必须晚于开始时间');
-  }
-
-  // 转换为 ISO 字符串存储
-  const startISO = new Date(start_time).toISOString();
-  const endISO = new Date(end_time).toISOString();
-
-  // 更新比赛信息
-  await db.execute({
-    sql: 'UPDATE competitions SET name = ?, start_time = ?, end_time = ? WHERE id = ?',
-    args: [name.trim(), startISO, endISO, compId]
-  });
-
-  // 重新设置题目关联
-  await db.execute({
-    sql: 'DELETE FROM competition_puzzles WHERE competition_id = ?',
-    args: [compId]
-  });
-  if (Array.isArray(puzzle_ids) && puzzle_ids.length > 0) {
-    for (let i = 0; i < puzzle_ids.length; i++) {
-      const pid = parseInt(puzzle_ids[i], 10);
-      if (!isNaN(pid)) {
-        await db.execute({
-          sql: 'INSERT OR IGNORE INTO competition_puzzles (competition_id, puzzle_id, sort_order) VALUES (?, ?, ?)',
-          args: [compId, pid, i]
-        });
-      }
-    }
-  }
-
-  res.redirect(`/competitions/${compId}`);
-});
-
 // 删除比赛（staff）
 app.post('/competitions/:id/delete', requireAuth, requireStaff, async (req, res) => {
-  const compId = req.params.id;
+  const compId = parseInt(req.params.id, 10);
   await db.execute({
     sql: 'DELETE FROM competitions WHERE id = ?',
     args: [compId]

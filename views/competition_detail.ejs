@@ -15,6 +15,7 @@
     .puzzle-list li { background: #f1f1f1; padding: 10px; margin-bottom: 8px; border-radius: 5px; }
     .puzzle-list a { color: #007bff; text-decoration: none; }
     .locked { color: #999; }
+    .solved-mark { color: green; font-weight: bold; }
   </style>
 </head>
 <body>
@@ -30,9 +31,7 @@
       <strong>状态：</strong>
       <% if (!isActive) { %>
         <% if (new Date() < new Date(competition.start_time)) { %>未开始<% } else { %>已结束<% } %>
-      <% } else { %>
-        进行中
-      <% } %>
+      <% } else { %>进行中<% } %>
     </p>
     <% if (!isStaff) { %>
       <% if (!isRegistered) { %>
@@ -54,11 +53,14 @@
         <li>
           <div>
             <strong><%= p.name %></strong>
+            <% if (p.solved) { %>
+              <span class="solved-mark">√</span>
+            <% } %>
             <% if (!p.is_visible) { %><span style="color:red;">[隐藏]</span><% } %>
-            <% if (canViewPuzzles) { %>
-              <a href="/puzzles/<%= p.id %>">查看</a>
+            <% if (p.canView) { %>
+              <a href="/puzzles/<%= p.id %>?competition_id=<%= competition.id %>">查看</a>
             <% } else { %>
-              <span class="locked">🔒 比赛进行中且报名后可查看</span>
+              <span class="locked">🔒 未解锁</span>
             <% } %>
           </div>
         </li>
