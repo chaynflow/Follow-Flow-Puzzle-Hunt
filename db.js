@@ -21,7 +21,7 @@ async function initDB() {
     )
   `);
 
-  // 确保 users 表列存在
+  // 迁移 users 表
   const userColumnsResult = await db.execute("PRAGMA table_info(users)");
   const userColumns = userColumnsResult.rows.map(col => col.name);
   if (!userColumns.includes('email')) {
@@ -34,10 +34,6 @@ async function initDB() {
   if (!userColumns.includes('role')) {
     await db.execute("ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'user'");
   }
-
-  // 确保 role 值规范
-  await db.execute("UPDATE users SET role = 'user' WHERE role IS NULL");
-  await db.execute("UPDATE users SET role = 'root' WHERE username = 'root'");
 
   // 创建 puzzles 表
   await db.execute(`
@@ -109,6 +105,42 @@ async function initDB() {
   if (!hintColumns.includes('sort_order')) {
     await db.execute("ALTER TABLE hints ADD COLUMN sort_order INTEGER DEFAULT 0");
   }
+
+  // 创建竞赛表
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS competitions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      start_time DATETIME NOT NULL,
+      end_time DATETIME NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  // 创建竞赛-题目关联表
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS competition_puzzles (
+      competition_id INTEGER NOT NULL,
+      puzzle_id INTEGER NOT NULL,
+      sort_order INTEGER DEFAULT 0,
+      PRIMARY KEY (competition_id, puzzle_id),
+      FOREIGN KEY (competition_id) REFERENCES competitions(id) ON DELETE CASCADE,
+      FOREIGN KEY (puzzle_id) REFERENCES puzzles(id) ON DELETE CASCADE
+    )
+  `);
+
+  // 创建报名表
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS registrations (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      competition_id INTEGER NOT NULL,
+      user_id INTEGER NOT NULL,
+      registered_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(competition_id, user_id),
+      FOREIGN KEY (competition_id) REFERENCES competitions(id) ON DELETE CASCADE,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    )
+  `);
 
   // 处理 root 用户
   const rootUserResult = await db.execute({

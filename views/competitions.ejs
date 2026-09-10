@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>比赛列表 - Follow-Flow Puzzle Hunt</title>
+  <style>
+    body { font-family: Arial, sans-serif; max-width: 900px; margin: 30px auto; padding: 20px; }
+    .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+    .back-link { color: #007bff; text-decoration: none; }
+    .add-comp-link { display: inline-block; background: #28a745; color: white; padding: 8px 16px; text-decoration: none; border-radius: 5px; margin-bottom: 15px; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { padding: 10px; text-align: left; border-bottom: 1px solid #ddd; }
+    th { background: #f8f9fa; }
+    .status { font-weight: bold; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>比赛列表</h1>
+    <a href="/dashboard" class="back-link">&larr; 返回仪表板</a>
+  </div>
+
+  <% if (isStaff) { %>
+    <a href="/competitions/new" class="add-comp-link">创建新比赛</a>
+  <% } %>
+
+  <% if (competitions.length === 0) { %>
+    <p>暂无比赛。</p>
+  <% } else { %>
+    <table>
+      <thead>
+        <tr>
+          <th>名称</th>
+          <th>开始时间</th>
+          <th>结束时间</th>
+          <th>报名人数</th>
+          <th>题目数</th>
+          <th>状态</th>
+          <th>操作</th>
+        </tr>
+      </thead>
+      <tbody>
+        <% competitions.forEach(comp => { %>
+          <tr>
+            <td><a href="/competitions/<%= comp.id %>"><%= comp.name %></a></td>
+            <td><%= comp.start_time %></td>
+            <td><%= comp.end_time %></td>
+            <td><%= comp.reg_count %></td>
+            <td><%= comp.puzzle_count %></td>
+            <td class="status">
+              <% const now = new Date(); const start = new Date(comp.start_time); const end = new Date(comp.end_time); %>
+              <% if (now < start) { %>未开始<% } else if (now > end) { %>已结束<% } else { %>进行中<% } %>
+            </td>
+            <td>
+              <% if (isStaff) { %>
+                <a href="/competitions/<%= comp.id %>/edit">编辑</a>
+                <form action="/competitions/<%= comp.id %>/delete" method="POST" style="display:inline;" onsubmit="return confirm('确定删除该比赛吗？');">
+                  <button type="submit" style="background:#dc3545;color:white;border:none;padding:3px 8px;border-radius:3px;">删除</button>
+                </form>
+              <% } %>
+            </td>
+          </tr>
+        <% }) %>
+      </tbody>
+    </table>
+  <% } %>
+</body>
+</html>

@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title><%= competition.name %> - Follow-Flow Puzzle Hunt</title>
+  <style>
+    body { font-family: Arial, sans-serif; max-width: 800px; margin: 30px auto; padding: 20px; }
+    .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+    .back-link { color: #007bff; text-decoration: none; }
+    .info-box { background: #f8f9fa; padding: 20px; border-radius: 8px; margin-bottom: 20px; }
+    .info-box p { margin: 8px 0; }
+    .register-btn { display: inline-block; background: #28a745; color: white; padding: 8px 16px; text-decoration: none; border-radius: 5px; margin-top: 10px; }
+    .puzzle-list { list-style: none; padding: 0; }
+    .puzzle-list li { background: #f1f1f1; padding: 10px; margin-bottom: 8px; border-radius: 5px; }
+    .puzzle-list a { color: #007bff; text-decoration: none; }
+    .locked { color: #999; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1><%= competition.name %></h1>
+    <a href="/competitions" class="back-link">&larr; 返回比赛列表</a>
+  </div>
+
+  <div class="info-box">
+    <p><strong>开始时间：</strong> <%= competition.start_time %></p>
+    <p><strong>结束时间：</strong> <%= competition.end_time %></p>
+    <p>
+      <strong>状态：</strong>
+      <% if (!isActive) { %>
+        <% if (new Date() < new Date(competition.start_time)) { %>未开始<% } else { %>已结束<% } %>
+      <% } else { %>
+        进行中
+      <% } %>
+    </p>
+    <% if (!isStaff) { %>
+      <% if (!isRegistered) { %>
+        <form action="/competitions/<%= competition.id %>/register" method="POST">
+          <button type="submit" class="register-btn">报名参加</button>
+        </form>
+      <% } else { %>
+        <p><strong>已报名</strong></p>
+      <% } %>
+    <% } %>
+  </div>
+
+  <h2>题目列表</h2>
+  <% if (puzzles.length === 0) { %>
+    <p>暂无题目。</p>
+  <% } else { %>
+    <ul class="puzzle-list">
+      <% puzzles.forEach(p => { %>
+        <li>
+          <div>
+            <strong><%= p.name %></strong>
+            <% if (!p.is_visible) { %><span style="color:red;">[隐藏]</span><% } %>
+            <% if (canViewPuzzles) { %>
+              <a href="/puzzles/<%= p.id %>">查看</a>
+            <% } else { %>
+              <span class="locked">🔒 比赛进行中且报名后可查看</span>
+            <% } %>
+          </div>
+        </li>
+      <% }) %>
+    </ul>
+  <% } %>
+
+  <% if (isStaff) { %>
+    <a href="/competitions/<%= competition.id %>/edit" style="color:#007bff;">编辑比赛</a>
+  <% } %>
+</body>
+</html>

@@ -38,78 +38,82 @@
   </div>
 
   <div class="puzzle-card">
-    <div class="puzzle-title">
-      <% if (puzzle.tags) { %>
-        【<%= puzzle.tags %>】
-      <% } %>
-      <%= puzzle.name %>
-    </div>
-
-    <% if (flavorTextHtml) { %>
-      <p class="flavor-text"><em><%- flavorTextHtml %></em></p>
-    <% } %>
-
-    <% if (descriptionHtml) { %>
-      <h3>题面</h3>
-      <p class="description-text"><%- descriptionHtml %></p>
-    <% } %>
-
-    <!-- 管理信息（staff 可见） -->
-    <% if (isStaff) { %>
-      <div class="admin-answer">
-        <h3>管理信息（仅 staff 可见）
-          <a href="/puzzles/<%= puzzle.id %>/edit" class="edit-link">编辑</a>
-        </h3>
-        <p><strong>答案：</strong> <%= puzzle.answer %></p>
-        <p><strong>可见性：</strong> <%= puzzle.is_visible ? '可见' : '隐藏' %></p>
-        <% if (intermediateAnswers.length > 0) { %>
-          <p><strong>中间答案：</strong></p>
-          <ul class="admin-intermediate">
-            <% intermediateAnswers.forEach(ia => { %>
-              <li><%= ia.answer %> <% if (ia.info) { %> - <%= ia.info %><% } %></li>
-            <% }) %>
-          </ul>
+    <% if (canViewPuzzle) { %>
+      <div class="puzzle-title">
+        <% if (puzzle.tags) { %>
+          【<%= puzzle.tags %>】
         <% } %>
+        <%= puzzle.name %>
       </div>
-    <% } %>
 
-    <!-- 提示区域 -->
-    <% if (hints.length > 0) { %>
-      <div class="hint-section">
-        <h3>提示</h3>
-        <% hints.forEach((hint, index) => { %>
-          <div class="hint-item">
-            <button class="hint-toggle-btn" 
-                    data-hint-id="hint-<%= hint.id %>" 
-                    data-title="<%= hint.title || '' %>" 
-                    data-index="<%= index + 1 %>">
-              显示提示<%= index + 1 %><% if (hint.title) { %>：<%= hint.title %><% } %>
-            </button>
-            <div class="hint-content" id="hint-<%= hint.id %>">
-              <strong><%= hint.title || '提示' %>：</strong> <%- hint.hint_text_html %>
+      <% if (flavorTextHtml) { %>
+        <p class="flavor-text"><em><%- flavorTextHtml %></em></p>
+      <% } %>
+
+      <% if (descriptionHtml) { %>
+        <h3>题面</h3>
+        <p class="description-text"><%- descriptionHtml %></p>
+      <% } %>
+
+      <!-- 管理信息（staff 可见） -->
+      <% if (isStaff) { %>
+        <div class="admin-answer">
+          <h3>管理信息（仅 staff 可见）
+            <a href="/puzzles/<%= puzzle.id %>/edit" class="edit-link">编辑</a>
+          </h3>
+          <p><strong>答案：</strong> <%= puzzle.answer %></p>
+          <p><strong>可见性：</strong> <%= puzzle.is_visible ? '可见' : '隐藏' %></p>
+          <% if (intermediateAnswers.length > 0) { %>
+            <p><strong>中间答案：</strong></p>
+            <ul class="admin-intermediate">
+              <% intermediateAnswers.forEach(ia => { %>
+                <li><%= ia.answer %> <% if (ia.info) { %> - <%= ia.info %><% } %></li>
+              <% }) %>
+            </ul>
+          <% } %>
+        </div>
+      <% } %>
+
+      <!-- 提示区域 -->
+      <% if (hints.length > 0) { %>
+        <div class="hint-section">
+          <h3>提示</h3>
+          <% hints.forEach((hint, index) => { %>
+            <div class="hint-item">
+              <button class="hint-toggle-btn" 
+                      data-hint-id="hint-<%= hint.id %>" 
+                      data-title="<%= hint.title || '' %>" 
+                      data-index="<%= index + 1 %>">
+                显示提示<%= index + 1 %><% if (hint.title) { %>：<%= hint.title %><% } %>
+              </button>
+              <div class="hint-content" id="hint-<%= hint.id %>">
+                <strong><%= hint.title || '提示' %>：</strong> <%- hint.hint_text_html %>
+              </div>
             </div>
-          </div>
-        <% }) %>
-      </div>
-    <% } %>
-
-    <!-- 答案提交区 -->
-    <div class="answer-form">
-      <h3>提交你的答案</h3>
-      <% if (result === 'correct') { %>
-        <div class="result correct">✅ 回答正确！</div>
-      <% } else if (result === 'intermediate') { %>
-        <% if (intermediateInfo) { %>
-          <div class="result intermediate"><%= intermediateInfo %></div>
-        <% } %>
-      <% } else if (result === 'incorrect') { %>
-        <div class="result incorrect">❌ 回答错误，请再试一次。</div>
+          <% }) %>
+        </div>
       <% } %>
-      <form action="/puzzles/<%= puzzle.id %>/answer" method="POST">
-        <input type="text" name="answer" placeholder="输入答案" required>
-        <button type="submit">提交答案</button>
-      </form>
-    </div>
+
+      <!-- 答案提交区 -->
+      <div class="answer-form">
+        <h3>提交你的答案</h3>
+        <% if (result === 'correct') { %>
+          <div class="result correct">✅ 回答正确！</div>
+        <% } else if (result === 'intermediate') { %>
+          <% if (intermediateInfo) { %>
+            <div class="result intermediate"><%= intermediateInfo %></div>
+          <% } %>
+        <% } else if (result === 'incorrect') { %>
+          <div class="result incorrect">❌ 回答错误，请再试一次。</div>
+        <% } %>
+        <form action="/puzzles/<%= puzzle.id %>/answer" method="POST">
+          <input type="text" name="answer" placeholder="输入答案" required>
+          <button type="submit">提交答案</button>
+        </form>
+      </div>
+    <% } else { %>
+      <p>谜题不存在或已隐藏。</p>
+    <% } %>
   </div>
 
   <script>
@@ -127,9 +131,7 @@
             ? `确定要显示提示${index}吗？标题：${title}` 
             : `确定要显示提示${index}吗？`;
           const userConfirmed = confirm(confirmMessage);
-          if (!userConfirmed) {
-            return;
-          }
+          if (!userConfirmed) return;
           content.style.display = 'block';
           this.textContent = '隐藏提示' + index;
         } else {

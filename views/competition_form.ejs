@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title><%= isEdit ? '编辑比赛' : '创建比赛' %> - Follow-Flow Puzzle Hunt</title>
+  <style>
+    body { font-family: Arial, sans-serif; max-width: 800px; margin: 30px auto; padding: 20px; }
+    .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+    .back-link { color: #007bff; text-decoration: none; }
+    .form-container { background: #f8f9fa; padding: 20px; border-radius: 5px; }
+    .form-container input, .form-container select { width: 100%; padding: 8px; margin: 8px 0; box-sizing: border-box; }
+    .puzzle-checkboxes { max-height: 300px; overflow-y: auto; border: 1px solid #ccc; padding: 10px; background: white; }
+    .form-container button { padding: 10px 20px; background: #28a745; color: white; border: none; cursor: pointer; margin-top: 15px; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1><%= isEdit ? '编辑比赛' : '创建新比赛' %></h1>
+    <a href="/competitions" class="back-link">&larr; 返回比赛列表</a>
+  </div>
+
+  <div class="form-container">
+    <form action="<%= isEdit ? `/competitions/${competition.id}/edit` : '/competitions' %>" method="POST">
+      <div>
+        <label>比赛名称（必填）</label>
+        <input type="text" name="name" value="<%= competition ? competition.name : '' %>" required>
+      </div>
+      <div>
+        <label>开始时间（必填）</label>
+        <input type="datetime-local" name="start_time" value="<%= competition ? competition.start_time.slice(0,16) : '' %>" required>
+      </div>
+      <div>
+        <label>结束时间（必填）</label>
+        <input type="datetime-local" name="end_time" value="<%= competition ? competition.end_time.slice(0,16) : '' %>" required>
+      </div>
+      <div>
+        <label>包含题目（选择多个）</label>
+        <div class="puzzle-checkboxes">
+          <% allPuzzles.forEach(p => { %>
+            <div>
+              <label>
+                <input type="checkbox" name="puzzle_ids" value="<%= p.id %>"
+                  <% if (selectedPuzzleIds.includes(p.id)) { %>checked<% } %>>
+                [<%= p.id %>] <%= p.name %> <% if (!p.is_visible) { %><span style="color:red;">[隐藏]</span><% } %>
+              </label>
+            </div>
+          <% }) %>
+        </div>
+        <small>可多选，包括隐藏题目。隐藏题目在比赛进行中且用户报名后可查看。</small>
+      </div>
+      <button type="submit"><%= isEdit ? '保存修改' : '创建比赛' %></button>
+    </form>
+  </div>
+</body>
+</html>

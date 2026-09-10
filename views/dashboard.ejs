@@ -9,7 +9,8 @@
     .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
     .logout { color: #dc3545; text-decoration: none; }
     .admin-link { color: #007bff; text-decoration: none; margin-right: 15px; }
-    .add-link { display: inline-block; background: #28a745; color: white; padding: 8px 16px; text-decoration: none; border-radius: 5px; margin-bottom: 20px; }
+    .comp-link { color: #28a745; text-decoration: none; margin-right: 15px; }
+    .add-link { display: inline-block; background: #28a745; color: white; padding: 8px 16px; text-decoration: none; border-radius: 5px; margin-bottom: 10px; }
     .puzzle-list { list-style: none; padding: 0; }
     .puzzle-item { background: #f1f1f1; padding: 15px; margin-bottom: 10px; border-radius: 5px; }
     .detail-link { display: inline-block; margin-top: 8px; color: #007bff; text-decoration: none; }
@@ -27,6 +28,7 @@
   <div class="header">
     <h1>欢迎, <%= username %>!</h1>
     <div>
+      <a href="/competitions" class="comp-link">比赛</a>
       <% if (isStaff) { %>
         <a href="/admin/users" class="admin-link">用户管理</a>
       <% } %>
