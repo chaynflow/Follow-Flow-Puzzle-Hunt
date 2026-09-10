@@ -12,10 +12,10 @@
     .info-box p { margin: 8px 0; }
     .register-btn { display: inline-block; background: #28a745; color: white; padding: 8px 16px; text-decoration: none; border-radius: 5px; margin-top: 10px; }
     .puzzle-list { list-style: none; padding: 0; }
-    .puzzle-list li { background: #f1f1f1; padding: 10px; margin-bottom: 8px; border-radius: 5px; }
+    .puzzle-list li { display: flex; align-items: center; justify-content: space-between; background: #f1f1f1; padding: 10px; margin-bottom: 8px; border-radius: 5px; }
     .puzzle-list a { color: #007bff; text-decoration: none; }
     .locked { color: #999; }
-    .solved-mark { color: green; font-weight: bold; }
+    .solved-answer { color: green; font-weight: bold; text-align: right; }
   </style>
 </head>
 <body>
@@ -53,14 +53,16 @@
         <li>
           <div>
             <strong><%= p.name %></strong>
-            <% if (p.solved) { %>
-              <span class="solved-mark">√</span>
-            <% } %>
-            <% if (!p.is_visible) { %><span style="color:red;">[隐藏]</span><% } %>
+            <% if (!p.is_visible && isStaff) { %><span style="color:red;">[隐藏]</span><% } %>
             <% if (p.canView) { %>
               <a href="/puzzles/<%= p.id %>?competition_id=<%= competition.id %>">查看</a>
             <% } else { %>
               <span class="locked">🔒 未解锁</span>
+            <% } %>
+          </div>
+          <div class="solved-answer">
+            <% if (p.solved) { %>
+              <%= p.answer %>
             <% } %>
           </div>
         </li>

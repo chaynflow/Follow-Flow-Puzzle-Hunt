@@ -591,8 +591,8 @@ app.post('/puzzles/:id/answer', requireAuth, async (req, res) => {
     return res.status(404).send('谜题不存在或已隐藏');
   }
 
-  const submittedAnswer = req.body.answer ? req.body.answer.trim().toLowerCase() : '';
-  const finalAnswer = puzzle.answer.trim().toLowerCase();
+  const submittedAnswer = req.body.answer ? req.body.answer.replace(/\s+/g, '').toLowerCase() : '';
+  const finalAnswer = puzzle.answer.replace(/\s+/g, '').toLowerCase();
 
   if (submittedAnswer === finalAnswer) {
     // 记录比赛解答（如果提供了 competition_id）
@@ -621,7 +621,7 @@ app.post('/puzzles/:id/answer', requireAuth, async (req, res) => {
     args: [puzzleId]
   });
   for (const inter of interResult.rows) {
-    if (submittedAnswer === inter.answer.trim().toLowerCase()) {
+    if (submittedAnswer === inter.answer.replace(/\s+/g, '').toLowerCase()) {
       const info = inter.info || '';
       const infoParam = encodeURIComponent(info);
       return res.redirect(`/puzzles/${puzzleId}?result=intermediate&intermediate_info=${infoParam}&competition_id=${competitionId || ''}`);
@@ -812,8 +812,8 @@ app.get('/competitions/:id', requireAuth, async (req, res) => {
   // 获取题目规则及用户解答状态
   const cpResult = await db.execute({
     sql: `SELECT cp.puzzle_id, cp.unlock_puzzle_ids, cp.unlock_required_count,
-                 p.name, p.tags, p.is_visible,
-                 (SELECT COUNT(*) FROM competition_answers ca
+                p.name, p.tags, p.is_visible, p.answer,
+                (SELECT COUNT(*) FROM competition_answers ca
                   WHERE ca.competition_id = cp.competition_id AND ca.user_id = ? AND ca.puzzle_id = cp.puzzle_id) AS solved
           FROM competition_puzzles cp
           JOIN puzzles p ON p.id = cp.puzzle_id
@@ -853,6 +853,7 @@ app.get('/competitions/:id', requireAuth, async (req, res) => {
       name: rule.name,
       tags: rule.tags,
       is_visible: rule.is_visible,
+      answer: rule.answer,
       solved,
       canView
     };
