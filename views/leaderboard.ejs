@@ -28,16 +28,18 @@
       <thead>
         <tr>
           <th>用户名</th>
-          <th>通过题数</th>
-          <th>最后一次有效提交</th>
+          <th>通过 Meta 题数</th>
+          <th>最后一次 Meta 提交时间</th>
+          <th>通过题目数</th>
         </tr>
       </thead>
       <tbody>
         <% leaderboard.forEach(entry => { %>
           <tr>
             <td><%= entry.username %></td>
-            <td><%= entry.solved_count %></td>
-            <td><%= entry.last_solved %></td>
+            <td><%= entry.meta_solved || 0 %></td>
+            <td><%= entry.last_meta_solved || '—' %></td>
+            <td><%= entry.total_solved %></td>
           </tr>
         <% }) %>
       </tbody>

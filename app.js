@@ -921,13 +921,16 @@ app.get('/competitions/:id/leaderboard', requireAuth, async (req, res) => {
 
   const leaderboardResult = await db.execute({
     sql: `SELECT u.username,
-                 COUNT(ca.puzzle_id) AS solved_count,
-                 MAX(ca.solved_at) AS last_solved
+                 COUNT(ca.puzzle_id) AS total_solved,
+                 SUM(CASE WHEN cp.is_meta = 1 THEN 1 ELSE 0 END) AS meta_solved,
+                 MAX(CASE WHEN cp.is_meta = 1 THEN ca.solved_at END) AS last_meta_solved
           FROM competition_answers ca
           JOIN users u ON u.id = ca.user_id
+          LEFT JOIN competition_puzzles cp 
+               ON cp.competition_id = ca.competition_id AND cp.puzzle_id = ca.puzzle_id
           WHERE ca.competition_id = ?
           GROUP BY ca.user_id, u.username
-          ORDER BY solved_count DESC, last_solved ASC`,
+          ORDER BY meta_solved DESC, last_meta_solved ASC, total_solved DESC`,
     args: [compId]
   });
   const leaderboard = leaderboardResult.rows;
