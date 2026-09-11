@@ -664,6 +664,7 @@ app.get('/competitions/new', requireAuth, requireStaff, (req, res) => {
 });
 
 // 处理创建比赛（staff）
+// 处理创建比赛（staff）
 app.post('/competitions', requireAuth, requireStaff, async (req, res) => {
   const { name, start_time, end_time } = req.body;
   if (!name || !name.trim()) {
@@ -689,17 +690,19 @@ app.post('/competitions', requireAuth, requireStaff, async (req, res) => {
   const puzzleIds = req.body.puzzle_ids || [];
   const unlockIds = req.body.unlock_ids || [];
   const unlockCounts = req.body.unlock_counts || [];
+  const isMeta = req.body.is_meta || []; // 新增
 
   for (let i = 0; i < puzzleIds.length; i++) {
     const pid = parseInt(puzzleIds[i], 10);
     if (!isNaN(pid)) {
       const unlock = unlockIds[i] ? unlockIds[i].trim() : '';
       const count = parseInt(unlockCounts[i], 10) || 0;
+      const meta = parseInt(isMeta[i], 10) || 0; // 新增
       await db.execute({
         sql: `INSERT OR IGNORE INTO competition_puzzles
-              (competition_id, puzzle_id, sort_order, unlock_puzzle_ids, unlock_required_count)
-              VALUES (?, ?, ?, ?, ?)`,
-        args: [compId, pid, i, unlock, count]
+              (competition_id, puzzle_id, sort_order, unlock_puzzle_ids, unlock_required_count, is_meta)
+              VALUES (?, ?, ?, ?, ?, ?)`,
+        args: [compId, pid, i, unlock, count, meta]
       });
     }
   }
@@ -736,6 +739,7 @@ app.get('/competitions/:id/edit', requireAuth, requireStaff, async (req, res) =>
 });
 
 // 处理编辑比赛（staff）
+// 处理编辑比赛（staff）
 app.post('/competitions/:id/edit', requireAuth, requireStaff, async (req, res) => {
   const compId = parseInt(req.params.id, 10);
   const { name, start_time, end_time } = req.body;
@@ -757,27 +761,29 @@ app.post('/competitions/:id/edit', requireAuth, requireStaff, async (req, res) =
     args: [name.trim(), startISO, endISO, compId]
   });
 
-  // 删除旧的规则
+  // 删除旧规则
   await db.execute({
     sql: 'DELETE FROM competition_puzzles WHERE competition_id = ?',
     args: [compId]
   });
 
-  // 插入新的规则
+  // 插入新规则
   const puzzleIds = req.body.puzzle_ids || [];
   const unlockIds = req.body.unlock_ids || [];
   const unlockCounts = req.body.unlock_counts || [];
+  const isMeta = req.body.is_meta || []; // 新增
 
   for (let i = 0; i < puzzleIds.length; i++) {
     const pid = parseInt(puzzleIds[i], 10);
     if (!isNaN(pid)) {
       const unlock = unlockIds[i] ? unlockIds[i].trim() : '';
       const count = parseInt(unlockCounts[i], 10) || 0;
+      const meta = parseInt(isMeta[i], 10) || 0; // 新增
       await db.execute({
         sql: `INSERT OR IGNORE INTO competition_puzzles
-              (competition_id, puzzle_id, sort_order, unlock_puzzle_ids, unlock_required_count)
-              VALUES (?, ?, ?, ?, ?)`,
-        args: [compId, pid, i, unlock, count]
+              (competition_id, puzzle_id, sort_order, unlock_puzzle_ids, unlock_required_count, is_meta)
+              VALUES (?, ?, ?, ?, ?, ?)`,
+        args: [compId, pid, i, unlock, count, meta]
       });
     }
   }
@@ -814,6 +820,7 @@ app.get('/competitions/:id', requireAuth, async (req, res) => {
   // 获取题目规则及用户解答状态，同时获取答案用于显示
   const cpResult = await db.execute({
     sql: `SELECT cp.puzzle_id, cp.unlock_puzzle_ids, cp.unlock_required_count,
+                 cp.is_meta,  -- 新增
                  p.name, p.tags, p.is_visible, p.answer,
                  (SELECT COUNT(*) FROM competition_answers ca
                   WHERE ca.competition_id = cp.competition_id AND ca.user_id = ? AND ca.puzzle_id = cp.puzzle_id) AS solved
@@ -856,6 +863,7 @@ app.get('/competitions/:id', requireAuth, async (req, res) => {
       tags: rule.tags,
       is_visible: rule.is_visible,
       answer: rule.answer,
+      is_meta: rule.is_meta, // 新增
       solved,
       canView
     };

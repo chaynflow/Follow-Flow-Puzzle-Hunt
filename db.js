@@ -131,8 +131,12 @@ async function initDB() {
   `);
 
   // 迁移旧的 competition_puzzles 表：添加新列
+    // 迁移 competition_puzzles 表：添加 is_meta 列
   const cpColumnsResult = await db.execute("PRAGMA table_info(competition_puzzles)");
   const cpColumns = cpColumnsResult.rows.map(col => col.name);
+  if (!cpColumns.includes('is_meta')) {
+    await db.execute("ALTER TABLE competition_puzzles ADD COLUMN is_meta INTEGER DEFAULT 0");
+  }
   if (!cpColumns.includes('unlock_puzzle_ids')) {
     await db.execute("ALTER TABLE competition_puzzles ADD COLUMN unlock_puzzle_ids TEXT");
   }

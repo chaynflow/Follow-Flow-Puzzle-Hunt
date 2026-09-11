@@ -9,13 +9,17 @@
     .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
     .back-link { color: #007bff; text-decoration: none; }
     .form-container { background: #f8f9fa; padding: 20px; border-radius: 5px; }
-    .form-container input, .form-container textarea { width: 100%; padding: 8px; margin: 8px 0; box-sizing: border-box; }
+    .form-container input, .form-container textarea, .form-container select { width: 100%; padding: 8px; margin: 8px 0; box-sizing: border-box; }
     .rule-row { border: 1px solid #ccc; padding: 10px; margin-bottom: 10px; border-radius: 5px; background: white; }
-    .rule-row input { display: inline-block; margin-right: 5px; }
+    .rule-row input, .rule-row select { display: inline-block; margin-right: 5px; margin-bottom: 5px; }
     .rule-row .remove-btn { background: #dc3545; color: white; border: none; padding: 5px 10px; cursor: pointer; border-radius: 3px; }
     .add-rule-btn { background: #007bff; color: white; border: none; padding: 8px 15px; cursor: pointer; border-radius: 3px; margin-top: 10px; }
     .form-container button[type="submit"] { margin-top: 15px; background: #28a745; color: white; border: none; padding: 10px 20px; cursor: pointer; border-radius: 3px; }
     .help-text { font-size: 0.85em; color: #666; margin-top: 2px; }
+    .rule-row input[name="puzzle_ids[]"] { width: 80px; }
+    .rule-row input[name="unlock_ids[]"] { width: 180px; }
+    .rule-row input[name="unlock_counts[]"] { width: 80px; }
+    .rule-row select[name="is_meta[]"] { width: 90px; }
   </style>
 </head>
 <body>
@@ -48,6 +52,10 @@
                 <input type="text" name="puzzle_ids[]" placeholder="题目编号" value="<%= rule.puzzle_id %>" required>
                 <input type="text" name="unlock_ids[]" placeholder="前置题目编号（逗号分隔，留空则比赛开始即可见）" value="<%= rule.unlock_puzzle_ids || '' %>">
                 <input type="text" name="unlock_counts[]" placeholder="所需完成数量" value="<%= rule.unlock_required_count || '' %>">
+                <select name="is_meta[]">
+                  <option value="0" <%= rule.is_meta == 0 ? 'selected' : '' %>>普通题</option>
+                  <option value="1" <%= rule.is_meta == 1 ? 'selected' : '' %>>Meta题</option>
+                </select>
                 <button type="button" class="remove-btn">删除</button>
               </div>
             <% }) %>
@@ -56,12 +64,16 @@
               <input type="text" name="puzzle_ids[]" placeholder="题目编号" required>
               <input type="text" name="unlock_ids[]" placeholder="前置题目编号（逗号分隔，留空则比赛开始即可见）">
               <input type="text" name="unlock_counts[]" placeholder="所需完成数量">
+              <select name="is_meta[]">
+                <option value="0" selected>普通题</option>
+                <option value="1">Meta题</option>
+              </select>
               <button type="button" class="remove-btn">删除</button>
             </div>
           <% } %>
         </div>
         <button type="button" id="addRuleBtn" class="add-rule-btn">添加题目规则</button>
-        <div class="help-text">每个规则：目标题目ID；前置题目ID（逗号分隔）；需要在前置中完成的数量。留空前置则比赛开始后即可访问。</div>
+        <div class="help-text">每个规则：目标题目ID；前置题目ID（逗号分隔）；需要在前置中完成的数量。留空前置则比赛开始后即可访问。Meta题会在题目名前显示彩色标签。</div>
       </div>
 
       <button type="submit"><%= isEdit ? '保存修改' : '创建比赛' %></button>
@@ -78,6 +90,10 @@
         <input type="text" name="puzzle_ids[]" placeholder="题目编号" required>
         <input type="text" name="unlock_ids[]" placeholder="前置题目编号（逗号分隔，留空则比赛开始即可见）">
         <input type="text" name="unlock_counts[]" placeholder="所需完成数量">
+        <select name="is_meta[]">
+          <option value="0" selected>普通题</option>
+          <option value="1">Meta题</option>
+        </select>
         <button type="button" class="remove-btn">删除</button>
       `;
       container.appendChild(row);

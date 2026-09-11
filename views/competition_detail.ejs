@@ -17,6 +17,15 @@
     .puzzle-list a { color: #007bff; text-decoration: none; }
     .locked { color: #999; }
     .solved-answer { color: green; font-weight: bold; text-align: right; }
+    .meta-badge {
+      display: inline-block;
+      background: linear-gradient(45deg, #ff6b6b, #feca57);
+      color: white;
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-weight: bold;
+      margin-right: 5px;
+    }
   </style>
 </head>
 <body>
@@ -55,11 +64,17 @@
       <% puzzles.forEach(p => { %>
         <li>
           <div>
-            <strong><%= p.name %></strong>
-            <% if (!p.is_visible && isStaff) { %><span style="color:red;">[隐藏]</span><% } %>
             <% if (p.canView) { %>
+              <% if (p.is_meta) { %>
+                <span class="meta-badge">META</span>
+              <% } %>
+              <strong><%= p.name %></strong>
+              <% if (p.solved) { %>
+                <span style="color: green; margin-left: 5px;">✔</span>
+              <% } %>
               <a href="/puzzles/<%= p.id %>?competition_id=<%= competition.id %>">查看</a>
             <% } else { %>
+              <strong>???</strong>
               <span class="locked">🔒 未解锁</span>
             <% } %>
           </div>
