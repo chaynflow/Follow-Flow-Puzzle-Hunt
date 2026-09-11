@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>排行榜 - <%= competition.name %> - Follow-Flow Puzzle Hunt</title>
+  <style>
+    body { font-family: Arial, sans-serif; max-width: 800px; margin: 30px auto; padding: 20px; }
+    .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+    .back-link { color: #007bff; text-decoration: none; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { padding: 10px; text-align: left; border-bottom: 1px solid #ddd; }
+    th { background: #f8f9fa; }
+    .empty { color: #999; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>排行榜</h1>
+    <a href="/competitions/<%= competition.id %>" class="back-link">&larr; 返回比赛</a>
+  </div>
+
+  <h2><%= competition.name %></h2>
+  <% if (leaderboard.length === 0) { %>
+    <p class="empty">暂无提交记录。</p>
+  <% } else { %>
+    <table>
+      <thead>
+        <tr>
+          <th>用户名</th>
+          <th>通过题数</th>
+          <th>最后一次有效提交</th>
+        </tr>
+      </thead>
+      <tbody>
+        <% leaderboard.forEach(entry => { %>
+          <tr>
+            <td><%= entry.username %></td>
+            <td><%= entry.solved_count %></td>
+            <td><%= entry.last_solved %></td>
+          </tr>
+        <% }) %>
+      </tbody>
+    </table>
+  <% } %>
+</body>
+</html>

@@ -58,6 +58,7 @@ function requireAuth(req, res, next) {
   res.redirect('/login');
 }
 
+// 管理员权限中间件（root 或 admin）
 function requireStaff(req, res, next) {
   if (req.session && (req.session.role === 'root' || req.session.role === 'admin')) {
     return next();
@@ -65,6 +66,7 @@ function requireStaff(req, res, next) {
   res.status(403).send('无权限访问');
 }
 
+// 仅 root 权限中间件
 function requireRoot(req, res, next) {
   if (req.session && req.session.role === 'root') {
     return next();
@@ -591,6 +593,7 @@ app.post('/puzzles/:id/answer', requireAuth, async (req, res) => {
     return res.status(404).send('谜题不存在或已隐藏');
   }
 
+  // 答案比较：忽略大小写和所有空白字符
   const submittedAnswer = req.body.answer ? req.body.answer.replace(/\s+/g, '').toLowerCase() : '';
   const finalAnswer = puzzle.answer.replace(/\s+/g, '').toLowerCase();
 
@@ -598,13 +601,11 @@ app.post('/puzzles/:id/answer', requireAuth, async (req, res) => {
     // 记录比赛解答（如果提供了 competition_id）
     if (competitionId) {
       const userId = req.session.userId;
-      // 检查是否已经在比赛中报名（可选）
       const regResult = await db.execute({
         sql: 'SELECT * FROM registrations WHERE competition_id = ? AND user_id = ?',
         args: [competitionId, userId]
       });
       if (regResult.rows.length > 0) {
-        // 插入或更新解答记录
         await db.execute({
           sql: `INSERT INTO competition_answers (competition_id, user_id, puzzle_id)
                 VALUES (?, ?, ?)
@@ -621,7 +622,8 @@ app.post('/puzzles/:id/answer', requireAuth, async (req, res) => {
     args: [puzzleId]
   });
   for (const inter of interResult.rows) {
-    if (submittedAnswer === inter.answer.replace(/\s+/g, '').toLowerCase()) {
+    const interAnswer = inter.answer.replace(/\s+/g, '').toLowerCase();
+    if (submittedAnswer === interAnswer) {
       const info = inter.info || '';
       const infoParam = encodeURIComponent(info);
       return res.redirect(`/puzzles/${puzzleId}?result=intermediate&intermediate_info=${infoParam}&competition_id=${competitionId || ''}`);
@@ -809,11 +811,11 @@ app.get('/competitions/:id', requireAuth, async (req, res) => {
   });
   const isRegistered = regResult.rows.length > 0;
 
-  // 获取题目规则及用户解答状态
+  // 获取题目规则及用户解答状态，同时获取答案用于显示
   const cpResult = await db.execute({
     sql: `SELECT cp.puzzle_id, cp.unlock_puzzle_ids, cp.unlock_required_count,
-                p.name, p.tags, p.is_visible, p.answer,
-                (SELECT COUNT(*) FROM competition_answers ca
+                 p.name, p.tags, p.is_visible, p.answer,
+                 (SELECT COUNT(*) FROM competition_answers ca
                   WHERE ca.competition_id = cp.competition_id AND ca.user_id = ? AND ca.puzzle_id = cp.puzzle_id) AS solved
           FROM competition_puzzles cp
           JOIN puzzles p ON p.id = cp.puzzle_id
@@ -859,25 +861,9 @@ app.get('/competitions/:id', requireAuth, async (req, res) => {
     };
   });
 
-  const leaderboardResult = await db.execute(`
-    SELECT u.username,
-           COUNT(DISTINCT ca.puzzle_id) AS solved_count,
-           MAX(ca.solved_at) AS last_solved_at
-    FROM registrations r
-    JOIN users u ON r.user_id = u.id
-    LEFT JOIN competition_answers ca ON ca.competition_id = r.competition_id AND ca.user_id = r.user_id
-    WHERE r.competition_id = ?
-    GROUP BY u.id, u.username
-    ORDER BY solved_count DESC,
-             CASE WHEN last_solved_at IS NULL THEN 1 ELSE 0 END,
-             last_solved_at ASC
-  `, [compId]);
-  const leaderboard = leaderboardResult.rows;
-
   res.render('competition_detail', {
     competition,
     puzzles: puzzlesToDisplay,
-    leaderboard,
     isRegistered,
     isActive,
     isStaff,
@@ -907,6 +893,43 @@ app.post('/competitions/:id/register', requireAuth, async (req, res) => {
     });
   }
   res.redirect(`/competitions/${compId}`);
+});
+
+// 比赛排行榜
+app.get('/competitions/:id/leaderboard', requireAuth, async (req, res) => {
+  const compId = parseInt(req.params.id, 10);
+  if (isNaN(compId)) {
+    return res.status(400).send('无效的比赛ID');
+  }
+
+  const compResult = await db.execute({
+    sql: 'SELECT * FROM competitions WHERE id = ?',
+    args: [compId]
+  });
+  const competition = compResult.rows[0];
+  if (!competition) {
+    return res.status(404).send('比赛不存在');
+  }
+
+  const leaderboardResult = await db.execute({
+    sql: `SELECT u.username,
+                 COUNT(ca.puzzle_id) AS solved_count,
+                 MAX(ca.solved_at) AS last_solved
+          FROM competition_answers ca
+          JOIN users u ON u.id = ca.user_id
+          WHERE ca.competition_id = ?
+          GROUP BY ca.user_id, u.username
+          ORDER BY solved_count DESC, last_solved ASC`,
+    args: [compId]
+  });
+  const leaderboard = leaderboardResult.rows;
+
+  res.render('leaderboard', {
+    competition,
+    leaderboard,
+    username: req.session.username,
+    isStaff: (req.session.role === 'root' || req.session.role === 'admin')
+  });
 });
 
 // 删除比赛（staff）
