@@ -16,6 +16,10 @@
     .puzzle-list a { color: #007bff; text-decoration: none; }
     .locked { color: #999; }
     .solved-answer { color: green; font-weight: bold; text-align: right; }
+    .leaderboard { margin-top: 30px; }
+    .leaderboard table { width: 100%; border-collapse: collapse; }
+    .leaderboard th, .leaderboard td { padding: 10px; text-align: left; border-bottom: 1px solid #ddd; }
+    .leaderboard th { background: #f8f9fa; }
   </style>
 </head>
 <body>
@@ -69,6 +73,32 @@
       <% }) %>
     </ul>
   <% } %>
+
+  <div class="leaderboard">
+    <h2>排行榜</h2>
+    <% if (leaderboard.length === 0) { %>
+      <p>暂无参赛者。</p>
+    <% } else { %>
+      <table>
+        <thead>
+          <tr>
+            <th>用户名</th>
+            <th>通过题数</th>
+            <th>最后一次有效提交</th>
+          </tr>
+        </thead>
+        <tbody>
+          <% leaderboard.forEach(entry => { %>
+            <tr>
+              <td><%= entry.username %></td>
+              <td><%= entry.solved_count %></td>
+              <td><%= entry.last_solved_at || '—' %></td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    <% } %>
+  </div>
 
   <% if (isStaff) { %>
     <a href="/competitions/<%= competition.id %>/edit" style="color:#007bff;">编辑比赛</a>

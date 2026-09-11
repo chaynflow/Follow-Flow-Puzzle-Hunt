@@ -859,9 +859,25 @@ app.get('/competitions/:id', requireAuth, async (req, res) => {
     };
   });
 
+  const leaderboardResult = await db.execute(`
+    SELECT u.username,
+           COUNT(DISTINCT ca.puzzle_id) AS solved_count,
+           MAX(ca.solved_at) AS last_solved_at
+    FROM registrations r
+    JOIN users u ON r.user_id = u.id
+    LEFT JOIN competition_answers ca ON ca.competition_id = r.competition_id AND ca.user_id = r.user_id
+    WHERE r.competition_id = ?
+    GROUP BY u.id, u.username
+    ORDER BY solved_count DESC,
+             CASE WHEN last_solved_at IS NULL THEN 1 ELSE 0 END,
+             last_solved_at ASC
+  `, [compId]);
+  const leaderboard = leaderboardResult.rows;
+
   res.render('competition_detail', {
     competition,
     puzzles: puzzlesToDisplay,
+    leaderboard,
     isRegistered,
     isActive,
     isStaff,
