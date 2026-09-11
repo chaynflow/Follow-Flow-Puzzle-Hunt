@@ -11,6 +11,7 @@
     .info-box { background: #f8f9fa; padding: 20px; border-radius: 8px; margin-bottom: 20px; }
     .info-box p { margin: 8px 0; }
     .register-btn { display: inline-block; background: #28a745; color: white; padding: 8px 16px; text-decoration: none; border-radius: 5px; margin-top: 10px; }
+    .leaderboard-link { display: inline-block; margin-bottom: 15px; color: #007bff; text-decoration: none; }
     .puzzle-list { list-style: none; padding: 0; }
     .puzzle-list li { display: flex; align-items: center; justify-content: space-between; background: #f1f1f1; padding: 10px; margin-bottom: 8px; border-radius: 5px; }
     .puzzle-list a { color: #007bff; text-decoration: none; }
@@ -43,6 +44,8 @@
       <% } %>
     <% } %>
   </div>
+
+  <a href="/competitions/<%= competition.id %>/leaderboard" class="leaderboard-link">查看排行榜</a>
 
   <h2>题目列表</h2>
   <% if (puzzles.length === 0) { %>

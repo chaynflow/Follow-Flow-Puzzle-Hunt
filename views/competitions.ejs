@@ -3,78 +3,71 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title><%= competition.name %> - Follow-Flow Puzzle Hunt</title>
+  <title>比赛列表 - Follow-Flow Puzzle Hunt</title>
   <style>
-    body { font-family: Arial, sans-serif; max-width: 800px; margin: 30px auto; padding: 20px; }
+    body { font-family: Arial, sans-serif; max-width: 900px; margin: 30px auto; padding: 20px; }
     .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
     .back-link { color: #007bff; text-decoration: none; }
-    .info-box { background: #f8f9fa; padding: 20px; border-radius: 8px; margin-bottom: 20px; }
-    .info-box p { margin: 8px 0; }
-    .register-btn { display: inline-block; background: #28a745; color: white; padding: 8px 16px; text-decoration: none; border-radius: 5px; margin-top: 10px; }
-    .leaderboard-link { display: inline-block; margin-bottom: 15px; color: #007bff; text-decoration: none; }
-    .puzzle-list { list-style: none; padding: 0; }
-    .puzzle-list li { display: flex; align-items: center; justify-content: space-between; background: #f1f1f1; padding: 10px; margin-bottom: 8px; border-radius: 5px; }
-    .puzzle-list a { color: #007bff; text-decoration: none; }
-    .locked { color: #999; }
-    .solved-answer { color: green; font-weight: bold; text-align: right; }
+    .add-comp-link { display: inline-block; background: #28a745; color: white; padding: 8px 16px; text-decoration: none; border-radius: 5px; margin-bottom: 15px; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { padding: 10px; text-align: left; border-bottom: 1px solid #ddd; }
+    th { background: #f8f9fa; }
+    .status { font-weight: bold; }
   </style>
 </head>
 <body>
   <div class="header">
-    <h1><%= competition.name %></h1>
-    <a href="/competitions" class="back-link">&larr; 返回比赛列表</a>
+    <h1>比赛列表</h1>
+    <a href="/dashboard" class="back-link">&larr; 返回仪表板</a>
   </div>
-
-  <div class="info-box">
-    <p><strong>开始时间：</strong> <%= competition.start_time %></p>
-    <p><strong>结束时间：</strong> <%= competition.end_time %></p>
-    <p>
-      <strong>状态：</strong>
-      <% if (!isActive) { %>
-        <% if (new Date() < new Date(competition.start_time)) { %>未开始<% } else { %>已结束<% } %>
-      <% } else { %>进行中<% } %>
-    </p>
-    <% if (!isStaff) { %>
-      <% if (!isRegistered) { %>
-        <form action="/competitions/<%= competition.id %>/register" method="POST">
-          <button type="submit" class="register-btn">报名参加</button>
-        </form>
-      <% } else { %>
-        <p><strong>已报名</strong></p>
-      <% } %>
-    <% } %>
-  </div>
-
-  <a href="/competitions/<%= competition.id %>/leaderboard" class="leaderboard-link">查看排行榜</a>
-
-  <h2>题目列表</h2>
-  <% if (puzzles.length === 0) { %>
-    <p>暂无题目。</p>
-  <% } else { %>
-    <ul class="puzzle-list">
-      <% puzzles.forEach(p => { %>
-        <li>
-          <div>
-            <strong><%= p.name %></strong>
-            <% if (!p.is_visible && isStaff) { %><span style="color:red;">[隐藏]</span><% } %>
-            <% if (p.canView) { %>
-              <a href="/puzzles/<%= p.id %>?competition_id=<%= competition.id %>">查看</a>
-            <% } else { %>
-              <span class="locked">🔒 未解锁</span>
-            <% } %>
-          </div>
-          <div class="solved-answer">
-            <% if (p.solved) { %>
-              <%= p.answer %>
-            <% } %>
-          </div>
-        </li>
-      <% }) %>
-    </ul>
-  <% } %>
 
   <% if (isStaff) { %>
-    <a href="/competitions/<%= competition.id %>/edit" style="color:#007bff;">编辑比赛</a>
+    <a href="/competitions/new" class="add-comp-link">创建新比赛</a>
+  <% } %>
+
+  <% if (competitions.length === 0) { %>
+    <p>暂无比赛。</p>
+  <% } else { %>
+    <table>
+      <thead>
+        <tr>
+          <th>名称</th>
+          <th>开始时间</th>
+          <th>结束时间</th>
+          <th>报名人数</th>
+          <th>题目数</th>
+          <th>状态</th>
+          <th>操作</th>
+        </tr>
+      </thead>
+      <tbody>
+        <% competitions.forEach(comp => { %>
+          <tr>
+            <td><a href="/competitions/<%= comp.id %>"><%= comp.name %></a></td>
+            <td><%= comp.start_time %></td>
+            <td><%= comp.end_time %></td>
+            <td><%= comp.reg_count %></td>
+            <td><%= comp.puzzle_count %></td>
+            <td class="status">
+              <% 
+                const now = new Date(); 
+                const start = new Date(comp.start_time); 
+                const end = new Date(comp.end_time); 
+              %>
+              <% if (now < start) { %>未开始<% } else if (now > end) { %>已结束<% } else { %>进行中<% } %>
+            </td>
+            <td>
+              <% if (isStaff) { %>
+                <a href="/competitions/<%= comp.id %>/edit">编辑</a>
+                <form action="/competitions/<%= comp.id %>/delete" method="POST" style="display:inline;" onsubmit="return confirm('确定删除该比赛吗？');">
+                  <button type="submit" style="background:#dc3545;color:white;border:none;padding:3px 8px;border-radius:3px;">删除</button>
+                </form>
+              <% } %>
+            </td>
+          </tr>
+        <% }) %>
+      </tbody>
+    </table>
   <% } %>
 </body>
 </html>
