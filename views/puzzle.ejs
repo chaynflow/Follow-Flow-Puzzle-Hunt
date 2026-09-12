@@ -29,6 +29,7 @@
     .admin-answer { background: #e9ecef; padding: 10px; border-radius: 5px; margin-top: 10px; }
     .admin-intermediate { white-space: pre-line; }
     .edit-link { color: #007bff; text-decoration: none; margin-left: 10px; }
+    .hint-points-box { background: #e9f7ef; padding: 10px; border-radius: 5px; margin-bottom: 15px; }
   </style>
 </head>
 <body>
@@ -39,6 +40,12 @@
 
   <div class="puzzle-card">
     <% if (canViewPuzzle) { %>
+      <% if (hintPoints !== null && hintPoints !== undefined) { %>
+        <div class="hint-points-box">
+          <strong>当前提示点：</strong> <%= hintPoints %>
+        </div>
+      <% } %>
+
       <div class="puzzle-title">
         <% if (puzzle.tags) { %>
           【<%= puzzle.tags %>】

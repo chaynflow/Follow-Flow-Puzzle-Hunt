@@ -9,7 +9,7 @@ const db = createClient({
 });
 
 async function initDB() {
-  // ==================== 用户表 ====================
+  // 创建 users 表
   await db.execute(`
     CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -21,6 +21,7 @@ async function initDB() {
     )
   `);
 
+  // 迁移 users 表
   const userColumnsResult = await db.execute("PRAGMA table_info(users)");
   const userColumns = userColumnsResult.rows.map(col => col.name);
   if (!userColumns.includes('email')) {
@@ -34,7 +35,7 @@ async function initDB() {
     await db.execute("ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'user'");
   }
 
-  // ==================== 谜题表 ====================
+  // 创建 puzzles 表
   await db.execute(`
     CREATE TABLE IF NOT EXISTS puzzles (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -63,7 +64,7 @@ async function initDB() {
     await db.execute("ALTER TABLE puzzles ADD COLUMN is_visible INTEGER DEFAULT 1");
   }
 
-  // ==================== 中间答案表 ====================
+  // 创建中间答案表
   await db.execute(`
     CREATE TABLE IF NOT EXISTS intermediate_answers (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -84,7 +85,7 @@ async function initDB() {
     await db.execute("ALTER TABLE intermediate_answers ADD COLUMN info TEXT");
   }
 
-  // ==================== 提示表 ====================
+  // 创建提示表
   await db.execute(`
     CREATE TABLE IF NOT EXISTS hints (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -105,18 +106,26 @@ async function initDB() {
     await db.execute("ALTER TABLE hints ADD COLUMN sort_order INTEGER DEFAULT 0");
   }
 
-  // ==================== 比赛表 ====================
+  // 创建竞赛表
   await db.execute(`
     CREATE TABLE IF NOT EXISTS competitions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL,
       start_time TEXT NOT NULL,
       end_time TEXT NOT NULL,
+      hint_points_per_minute REAL DEFAULT 0,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
   `);
 
-  // ==================== 比赛题目关联表（含解锁规则） ====================
+  // 迁移 competitions 表：添加 hint_points_per_minute 列
+  const compColumnsResult = await db.execute("PRAGMA table_info(competitions)");
+  const compColumns = compColumnsResult.rows.map(col => col.name);
+  if (!compColumns.includes('hint_points_per_minute')) {
+    await db.execute("ALTER TABLE competitions ADD COLUMN hint_points_per_minute REAL DEFAULT 0");
+  }
+
+  // 创建比赛-题目关联表
   await db.execute(`
     CREATE TABLE IF NOT EXISTS competition_puzzles (
       competition_id INTEGER NOT NULL,
@@ -124,27 +133,27 @@ async function initDB() {
       sort_order INTEGER DEFAULT 0,
       unlock_puzzle_ids TEXT,
       unlock_required_count INTEGER DEFAULT 0,
+      is_meta INTEGER DEFAULT 0,
       PRIMARY KEY (competition_id, puzzle_id),
       FOREIGN KEY (competition_id) REFERENCES competitions(id) ON DELETE CASCADE,
       FOREIGN KEY (puzzle_id) REFERENCES puzzles(id) ON DELETE CASCADE
     )
   `);
 
-  // 迁移旧的 competition_puzzles 表：添加新列
-    // 迁移 competition_puzzles 表：添加 is_meta 列
+  // 迁移 competition_puzzles 表：确保列存在
   const cpColumnsResult = await db.execute("PRAGMA table_info(competition_puzzles)");
   const cpColumns = cpColumnsResult.rows.map(col => col.name);
-  if (!cpColumns.includes('is_meta')) {
-    await db.execute("ALTER TABLE competition_puzzles ADD COLUMN is_meta INTEGER DEFAULT 0");
-  }
   if (!cpColumns.includes('unlock_puzzle_ids')) {
     await db.execute("ALTER TABLE competition_puzzles ADD COLUMN unlock_puzzle_ids TEXT");
   }
   if (!cpColumns.includes('unlock_required_count')) {
     await db.execute("ALTER TABLE competition_puzzles ADD COLUMN unlock_required_count INTEGER DEFAULT 0");
   }
+  if (!cpColumns.includes('is_meta')) {
+    await db.execute("ALTER TABLE competition_puzzles ADD COLUMN is_meta INTEGER DEFAULT 0");
+  }
 
-  // ==================== 报名表 ====================
+  // 创建报名表
   await db.execute(`
     CREATE TABLE IF NOT EXISTS registrations (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -157,7 +166,7 @@ async function initDB() {
     )
   `);
 
-  // ==================== 用户解答记录表 ====================
+  // 创建用户解答记录表
   await db.execute(`
     CREATE TABLE IF NOT EXISTS competition_answers (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -172,7 +181,7 @@ async function initDB() {
     )
   `);
 
-  // ==================== 处理 root 用户 ====================
+  // 处理 root 用户
   const rootUserResult = await db.execute({
     sql: 'SELECT * FROM users WHERE username = ?',
     args: ['root']

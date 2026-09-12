@@ -26,6 +26,7 @@
       font-weight: bold;
       margin-right: 5px;
     }
+    .hint-points-box { background: #e9f7ef; padding: 10px; border-radius: 5px; margin-top: 10px; }
   </style>
 </head>
 <body>
@@ -50,6 +51,11 @@
         </form>
       <% } else { %>
         <p><strong>已报名</strong></p>
+        <% if (hintPoints !== null) { %>
+          <div class="hint-points-box">
+            <strong>当前提示点：</strong> <%= hintPoints %>（增速 <%= hintRate %> 点/分钟）
+          </div>
+        <% } %>
       <% } %>
     <% } %>
   </div>

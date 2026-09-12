@@ -41,6 +41,33 @@ function renderMarkdownImages(text) {
   return parts.join('');
 }
 
+// 辅助函数：计算提示点
+function calculateHintPoints(competition, registeredAt, now = new Date()) {
+  if (!competition || !registeredAt) return 0;
+  const rate = competition.hint_points_per_minute || 0;
+  if (rate <= 0) return 0;
+
+  const start = new Date(competition.start_time);
+  const end = new Date(competition.end_time);
+  const current = now instanceof Date ? now : new Date(now);
+  const regTime = new Date(registeredAt);
+
+  // 如果当前时间在比赛开始前，或者注册时间晚于当前时间，返回 0
+  if (current < start || regTime > current) return 0;
+
+  // 有效起点：比赛开始时间和报名时间中的较晚者
+  const effectiveStart = regTime > start ? regTime : start;
+  // 有效终点：当前时间和比赛结束时间的较早者
+  const effectiveEnd = current < end ? current : end;
+
+  // 如果起点在终点之后，返回 0
+  if (effectiveStart >= effectiveEnd) return 0;
+
+  const minutesElapsed = (effectiveEnd - effectiveStart) / 60000;
+  const points = minutesElapsed * rate;
+  return Math.round(points * 100) / 100; // 保留两位小数
+}
+
 app.set('view engine', 'ejs');
 app.use(express.urlencoded({ extended: true }));
 app.use(session({
@@ -58,7 +85,6 @@ function requireAuth(req, res, next) {
   res.redirect('/login');
 }
 
-// 管理员权限中间件（root 或 admin）
 function requireStaff(req, res, next) {
   if (req.session && (req.session.role === 'root' || req.session.role === 'admin')) {
     return next();
@@ -66,7 +92,6 @@ function requireStaff(req, res, next) {
   res.status(403).send('无权限访问');
 }
 
-// 仅 root 权限中间件
 function requireRoot(req, res, next) {
   if (req.session && req.session.role === 'root') {
     return next();
@@ -456,14 +481,11 @@ async function canUserViewPuzzle(userId, puzzleId, isStaff, competitionId = null
   if (puzzleResult.rows.length === 0) return false;
   const puzzle = puzzleResult.rows[0];
 
-  // 如果公开可见，直接允许
   if (puzzle.is_visible === 1) return true;
 
-  // 否则需要检查比赛
   const now = new Date().toISOString();
   let competitionIds = [];
   if (competitionId) {
-    // 检查指定比赛
     const compResult = await db.execute({
       sql: `SELECT c.id
             FROM competitions c
@@ -477,7 +499,6 @@ async function canUserViewPuzzle(userId, puzzleId, isStaff, competitionId = null
       competitionIds = [competitionId];
     }
   } else {
-    // 检查所有已报名的进行中的比赛
     const compResult = await db.execute({
       sql: `SELECT DISTINCT c.id
             FROM competitions c
@@ -490,7 +511,6 @@ async function canUserViewPuzzle(userId, puzzleId, isStaff, competitionId = null
   }
 
   for (const compId of competitionIds) {
-    // 检查该比赛是否包含此题目
     const cpResult = await db.execute({
       sql: `SELECT * FROM competition_puzzles
             WHERE competition_id = ? AND puzzle_id = ?`,
@@ -499,15 +519,12 @@ async function canUserViewPuzzle(userId, puzzleId, isStaff, competitionId = null
     if (cpResult.rows.length === 0) continue;
     const cp = cpResult.rows[0];
 
-    // 检查解锁条件
     if (cp.unlock_puzzle_ids && cp.unlock_puzzle_ids.trim() !== '') {
       const prereqIds = cp.unlock_puzzle_ids.split(',').map(s => parseInt(s.trim(), 10)).filter(id => !isNaN(id));
       const required = cp.unlock_required_count || 0;
       if (prereqIds.length === 0 || required <= 0) {
-        // 无有效前置条件，视为可访问
         return true;
       }
-      // 查询用户在当前比赛中已解答的前置题目数量
       const solvedResult = await db.execute({
         sql: `SELECT COUNT(*) AS cnt FROM competition_answers
               WHERE competition_id = ? AND user_id = ? AND puzzle_id IN (${prereqIds.join(',')})`,
@@ -518,7 +535,6 @@ async function canUserViewPuzzle(userId, puzzleId, isStaff, competitionId = null
         return true;
       }
     } else {
-      // 无前置条件，比赛进行中即可访问
       return true;
     }
   }
@@ -543,6 +559,26 @@ app.get('/puzzles/:id', requireAuth, async (req, res) => {
   const canView = await canUserViewPuzzle(req.session.userId, puzzleId, isStaff, competitionId);
   if (!canView) {
     return res.status(404).send('谜题不存在或已隐藏');
+  }
+
+  // 计算提示点（若从比赛进入且用户已报名）
+  let hintPoints = null;
+  if (competitionId && !isStaff) {
+    const userId = req.session.userId;
+    const compResult = await db.execute({
+      sql: 'SELECT * FROM competitions WHERE id = ?',
+      args: [competitionId]
+    });
+    const competition = compResult.rows[0];
+    if (competition) {
+      const regResult = await db.execute({
+        sql: 'SELECT registered_at FROM registrations WHERE competition_id = ? AND user_id = ?',
+        args: [competitionId, userId]
+      });
+      if (regResult.rows.length > 0) {
+        hintPoints = calculateHintPoints(competition, regResult.rows[0].registered_at);
+      }
+    }
   }
 
   const descriptionHtml = renderMarkdownImages(puzzle.description);
@@ -570,7 +606,8 @@ app.get('/puzzles/:id', requireAuth, async (req, res) => {
     isAdmin,
     isStaff,
     canViewPuzzle: true,
-    competitionId
+    competitionId,
+    hintPoints
   });
 });
 
@@ -593,12 +630,10 @@ app.post('/puzzles/:id/answer', requireAuth, async (req, res) => {
     return res.status(404).send('谜题不存在或已隐藏');
   }
 
-  // 答案比较：忽略大小写和所有空白字符
   const submittedAnswer = req.body.answer ? req.body.answer.replace(/\s+/g, '').toLowerCase() : '';
   const finalAnswer = puzzle.answer.replace(/\s+/g, '').toLowerCase();
 
   if (submittedAnswer === finalAnswer) {
-    // 记录比赛解答（如果提供了 competition_id）
     if (competitionId) {
       const userId = req.session.userId;
       const regResult = await db.execute({
@@ -664,9 +699,8 @@ app.get('/competitions/new', requireAuth, requireStaff, (req, res) => {
 });
 
 // 处理创建比赛（staff）
-// 处理创建比赛（staff）
 app.post('/competitions', requireAuth, requireStaff, async (req, res) => {
-  const { name, start_time, end_time } = req.body;
+  const { name, start_time, end_time, hint_points_per_minute } = req.body;
   if (!name || !name.trim()) {
     return res.status(400).send('比赛名称不能为空');
   }
@@ -679,25 +713,25 @@ app.post('/competitions', requireAuth, requireStaff, async (req, res) => {
 
   const startISO = new Date(start_time).toISOString();
   const endISO = new Date(end_time).toISOString();
+  const hintRate = parseFloat(hint_points_per_minute) || 0;
 
   const insertResult = await db.execute({
-    sql: 'INSERT INTO competitions (name, start_time, end_time) VALUES (?, ?, ?)',
-    args: [name.trim(), startISO, endISO]
+    sql: 'INSERT INTO competitions (name, start_time, end_time, hint_points_per_minute) VALUES (?, ?, ?, ?)',
+    args: [name.trim(), startISO, endISO, hintRate]
   });
   const compId = insertResult.lastInsertRowid;
 
-  // 处理题目规则
   const puzzleIds = req.body.puzzle_ids || [];
   const unlockIds = req.body.unlock_ids || [];
   const unlockCounts = req.body.unlock_counts || [];
-  const isMeta = req.body.is_meta || []; // 新增
+  const isMeta = req.body.is_meta || [];
 
   for (let i = 0; i < puzzleIds.length; i++) {
     const pid = parseInt(puzzleIds[i], 10);
     if (!isNaN(pid)) {
       const unlock = unlockIds[i] ? unlockIds[i].trim() : '';
       const count = parseInt(unlockCounts[i], 10) || 0;
-      const meta = parseInt(isMeta[i], 10) || 0; // 新增
+      const meta = parseInt(isMeta[i], 10) || 0;
       await db.execute({
         sql: `INSERT OR IGNORE INTO competition_puzzles
               (competition_id, puzzle_id, sort_order, unlock_puzzle_ids, unlock_required_count, is_meta)
@@ -722,7 +756,6 @@ app.get('/competitions/:id/edit', requireAuth, requireStaff, async (req, res) =>
     return res.status(404).send('比赛不存在');
   }
 
-  // 获取现有规则
   const rulesResult = await db.execute({
     sql: 'SELECT * FROM competition_puzzles WHERE competition_id = ? ORDER BY sort_order, puzzle_id',
     args: [compId]
@@ -739,10 +772,9 @@ app.get('/competitions/:id/edit', requireAuth, requireStaff, async (req, res) =>
 });
 
 // 处理编辑比赛（staff）
-// 处理编辑比赛（staff）
 app.post('/competitions/:id/edit', requireAuth, requireStaff, async (req, res) => {
   const compId = parseInt(req.params.id, 10);
-  const { name, start_time, end_time } = req.body;
+  const { name, start_time, end_time, hint_points_per_minute } = req.body;
   if (!name || !name.trim()) {
     return res.status(400).send('比赛名称不能为空');
   }
@@ -755,30 +787,29 @@ app.post('/competitions/:id/edit', requireAuth, requireStaff, async (req, res) =
 
   const startISO = new Date(start_time).toISOString();
   const endISO = new Date(end_time).toISOString();
+  const hintRate = parseFloat(hint_points_per_minute) || 0;
 
   await db.execute({
-    sql: 'UPDATE competitions SET name = ?, start_time = ?, end_time = ? WHERE id = ?',
-    args: [name.trim(), startISO, endISO, compId]
+    sql: 'UPDATE competitions SET name = ?, start_time = ?, end_time = ?, hint_points_per_minute = ? WHERE id = ?',
+    args: [name.trim(), startISO, endISO, hintRate, compId]
   });
 
-  // 删除旧规则
   await db.execute({
     sql: 'DELETE FROM competition_puzzles WHERE competition_id = ?',
     args: [compId]
   });
 
-  // 插入新规则
   const puzzleIds = req.body.puzzle_ids || [];
   const unlockIds = req.body.unlock_ids || [];
   const unlockCounts = req.body.unlock_counts || [];
-  const isMeta = req.body.is_meta || []; // 新增
+  const isMeta = req.body.is_meta || [];
 
   for (let i = 0; i < puzzleIds.length; i++) {
     const pid = parseInt(puzzleIds[i], 10);
     if (!isNaN(pid)) {
       const unlock = unlockIds[i] ? unlockIds[i].trim() : '';
       const count = parseInt(unlockCounts[i], 10) || 0;
-      const meta = parseInt(isMeta[i], 10) || 0; // 新增
+      const meta = parseInt(isMeta[i], 10) || 0;
       await db.execute({
         sql: `INSERT OR IGNORE INTO competition_puzzles
               (competition_id, puzzle_id, sort_order, unlock_puzzle_ids, unlock_required_count, is_meta)
@@ -810,17 +841,22 @@ app.get('/competitions/:id', requireAuth, async (req, res) => {
   const userId = req.session.userId;
   const isStaff = (req.session.role === 'root' || req.session.role === 'admin');
 
-  // 获取报名状态
   const regResult = await db.execute({
     sql: 'SELECT * FROM registrations WHERE competition_id = ? AND user_id = ?',
     args: [compId, userId]
   });
   const isRegistered = regResult.rows.length > 0;
+  const registeredAt = isRegistered ? regResult.rows[0].registered_at : null;
 
-  // 获取题目规则及用户解答状态，同时获取答案用于显示
+  // 计算提示点
+  let hintPoints = null;
+  if (isRegistered && !isStaff) {
+    hintPoints = calculateHintPoints(competition, registeredAt);
+  }
+
   const cpResult = await db.execute({
     sql: `SELECT cp.puzzle_id, cp.unlock_puzzle_ids, cp.unlock_required_count,
-                 cp.is_meta,  -- 新增
+                 cp.is_meta,
                  p.name, p.tags, p.is_visible, p.answer,
                  (SELECT COUNT(*) FROM competition_answers ca
                   WHERE ca.competition_id = cp.competition_id AND ca.user_id = ? AND ca.puzzle_id = cp.puzzle_id) AS solved
@@ -837,7 +873,6 @@ app.get('/competitions/:id', requireAuth, async (req, res) => {
   const endTime = new Date(competition.end_time);
   const isActive = now >= startTime && now <= endTime;
 
-  // 计算每个题目的可访问性
   const puzzlesToDisplay = rules.map(rule => {
     const solved = rule.solved > 0;
     let canView = false;
@@ -851,7 +886,6 @@ app.get('/competitions/:id', requireAuth, async (req, res) => {
         if (prereqIds.length === 0 || required <= 0) {
           canView = true;
         } else {
-          // 查询用户已解答的前置题目数量
           const solvedCount = rules.filter(r => prereqIds.includes(r.puzzle_id) && r.solved > 0).length;
           canView = solvedCount >= required;
         }
@@ -863,7 +897,7 @@ app.get('/competitions/:id', requireAuth, async (req, res) => {
       tags: rule.tags,
       is_visible: rule.is_visible,
       answer: rule.answer,
-      is_meta: rule.is_meta, // 新增
+      is_meta: rule.is_meta,
       solved,
       canView
     };
@@ -875,7 +909,9 @@ app.get('/competitions/:id', requireAuth, async (req, res) => {
     isRegistered,
     isActive,
     isStaff,
-    username: req.session.username
+    username: req.session.username,
+    hintPoints,
+    hintRate: competition.hint_points_per_minute || 0
   });
 });
 
