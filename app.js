@@ -598,16 +598,11 @@ app.get('/puzzles/:id', requireAuth, async (req, res) => {
 
   if (competitionId && !isStaff) {
     const userId = req.session.userId;
-
-    // 获取已解锁的提示ID
     const unlockRes = await db.execute({
       sql: 'SELECT hint_id FROM user_hint_unlocks WHERE competition_id = ? AND user_id = ? AND puzzle_id = ?',
       args: [competitionId, userId, puzzleId]
     });
-    hintUnlocks = unlockRes.rows.map(r => r.hint_id);
-
-    // 计算可用提示点
-    availablePoints = await getUserAvailableHintPoints(competitionId, userId);
+    hintUnlocks = unlockRes.rows.map(r => parseInt(r.hint_id));
   }
 
   // 计算提示点（若从比赛进入且用户已报名）
@@ -708,63 +703,67 @@ app.post('/puzzles/:id/answer', requireAuth, async (req, res) => {
 
 // 解锁提示
 app.post('/puzzles/:id/hints/:hint_id/unlock', requireAuth, async (req, res) => {
-  const puzzleId = parseInt(req.params.id, 10);
-  const hintId = parseInt(req.params.hint_id, 10);
-  const competitionId = req.body.competition_id ? parseInt(req.body.competition_id, 10) : null;
+  try {
+    const puzzleId = parseInt(req.params.id, 10);
+    const hintId = parseInt(req.params.hint_id, 10);
+    const competitionId = req.body.competition_id ? parseInt(req.body.competition_id, 10) : null;
 
-  if (!competitionId || isNaN(competitionId)) {
-    return res.status(400).send('缺少有效的比赛ID');
-  }
-  const userId = req.session.userId;
-  const isStaff = (req.session.role === 'root' || req.session.role === 'admin');
+    // 1. 验证必填参数
+    if (!competitionId || isNaN(competitionId) || isNaN(puzzleId) || isNaN(hintId)) {
+      return res.status(400).send('参数错误：缺少比赛ID、谜题ID或提示ID');
+    }
 
-  // 获取谜题和提示
-  const data = await getPuzzleWithDetails(puzzleId);
-  if (!data) return res.status(404).send('谜题不存在');
-  const hint = data.hints.find(h => h.id === hintId);
-  if (!hint) return res.status(404).send('提示不存在');
+    const userId = req.session.userId;
+    const isStaff = (req.session.role === 'root' || req.session.role === 'admin');
 
-  // 检查用户是否有权限查看该谜题（在比赛中）
-  const canView = await canUserViewPuzzle(userId, puzzleId, isStaff, competitionId);
-  if (!canView) return res.status(403).send('无权限');
+    // 2. 获取谜题和提示信息
+    const data = await getPuzzleWithDetails(puzzleId);
+    if (!data) return res.status(404).send('谜题不存在');
+    const hint = data.hints.find(h => h.id === hintId);
+    if (!hint) return res.status(404).send('提示不存在');
 
-  // 检查是否已经解锁过
-  const existing = await db.execute({
-    sql: 'SELECT * FROM user_hint_unlocks WHERE competition_id = ? AND user_id = ? AND puzzle_id = ? AND hint_id = ?',
-    args: [competitionId, userId, puzzleId, hintId]
-  });
-  if (existing.rows.length > 0) {
-    // 已解锁，直接重定向
-    return res.redirect(`/puzzles/${puzzleId}?competition_id=${competitionId}`);
-  }
+    // 3. 检查用户是否有权查看这个谜题（尤其在比赛中）
+    const canView = await canUserViewPuzzle(userId, puzzleId, isStaff, competitionId);
+    if (!canView) return res.status(403).send('无权访问该谜题');
 
-  const cost = hint.point_cost || 0;
-
-  // staff 免费解锁
-  if (isStaff) {
-    await db.execute({
-      sql: 'INSERT OR IGNORE INTO user_hint_unlocks (competition_id, user_id, puzzle_id, hint_id, cost) VALUES (?, ?, ?, ?, 0)',
+    // 4. 检查是否已经解锁过
+    const existing = await db.execute({
+      sql: 'SELECT * FROM user_hint_unlocks WHERE competition_id = ? AND user_id = ? AND puzzle_id = ? AND hint_id = ?',
       args: [competitionId, userId, puzzleId, hintId]
     });
+    if (existing.rows.length > 0) {
+      // 已经解锁，直接跳转回谜题页，并带上competition_id
+      return res.redirect(`/puzzles/${puzzleId}?competition_id=${competitionId}`);
+    }
+
+    // 5. 获取提示点消耗
+    const cost = Number(hint.point_cost) || 0;
+
+    // 6. 如果是staff，免费解锁；否则检查余额
+    if (!isStaff) {
+      const availablePoints = await getUserAvailableHintPoints(competitionId, userId);
+      if (availablePoints === null) {
+        return res.redirect(`/puzzles/${puzzleId}?competition_id=${competitionId}&hint_error=1`);
+      }
+      if (availablePoints < cost) {
+        return res.redirect(`/puzzles/${puzzleId}?competition_id=${competitionId}&hint_error=1`);
+      }
+    }
+
+    // 7. 插入解锁记录
+    await db.execute({
+      sql: `INSERT INTO user_hint_unlocks 
+            (competition_id, user_id, puzzle_id, hint_id, cost) 
+            VALUES (?, ?, ?, ?, ?)`,
+      args: [competitionId, userId, puzzleId, hintId, isStaff ? 0 : cost]
+    });
+
+    // 8. 成功，重定向
     return res.redirect(`/puzzles/${puzzleId}?competition_id=${competitionId}`);
+  } catch (err) {
+    console.error('解锁提示失败:', err);
+    return res.status(500).send('服务器内部错误');
   }
-
-  // 普通用户：检查余额
-  const available = await getUserAvailableHintPoints(competitionId, userId);
-  if (available === null) {
-    return res.redirect(`/puzzles/${puzzleId}?competition_id=${competitionId}`);
-  }
-  if (available < cost) {
-    return res.redirect(`/puzzles/${puzzleId}?competition_id=${competitionId}&hint_error=1`);
-  }
-
-  // 插入解锁记录（带实际消耗）
-  await db.execute({
-    sql: 'INSERT INTO user_hint_unlocks (competition_id, user_id, puzzle_id, hint_id, cost) VALUES (?, ?, ?, ?, ?)',
-    args: [competitionId, userId, puzzleId, hintId, cost]
-  });
-
-  res.redirect(`/puzzles/${puzzleId}?competition_id=${competitionId}`);
 });
 
 // ================= 比赛相关路由 =================
