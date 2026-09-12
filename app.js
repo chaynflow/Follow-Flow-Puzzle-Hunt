@@ -722,11 +722,13 @@ app.post('/puzzles/:id/answer', requireAuth, async (req, res) => {
 
 // 解锁提示
 app.post('/puzzles/:id/hints/:hint_id/unlock', requireAuth, async (req, res) => {
-  const puzzleId = req.params.id;
+  const puzzleId = parseInt(req.params.id, 10);
   const hintId = parseInt(req.params.hint_id, 10);
   const competitionId = req.body.competition_id ? parseInt(req.body.competition_id, 10) : null;
 
-  if (!competitionId) return res.status(400).send('缺少比赛ID');
+  if (!competitionId || isNaN(competitionId)) {
+    return res.status(400).send('缺少有效的比赛ID');
+  }
   const userId = req.session.userId;
   const isStaff = (req.session.role === 'root' || req.session.role === 'admin');
 
@@ -736,16 +738,17 @@ app.post('/puzzles/:id/hints/:hint_id/unlock', requireAuth, async (req, res) => 
   const hint = data.hints.find(h => h.id === hintId);
   if (!hint) return res.status(404).send('提示不存在');
 
-  // 检查权限
+  // 检查用户是否有权限查看该谜题（在比赛中）
   const canView = await canUserViewPuzzle(userId, puzzleId, isStaff, competitionId);
   if (!canView) return res.status(403).send('无权限');
 
-  // 检查是否已解锁
+  // 检查是否已经解锁过
   const existing = await db.execute({
     sql: 'SELECT * FROM user_hint_unlocks WHERE competition_id = ? AND user_id = ? AND puzzle_id = ? AND hint_id = ?',
     args: [competitionId, userId, puzzleId, hintId]
   });
   if (existing.rows.length > 0) {
+    // 已解锁，直接重定向
     return res.redirect(`/puzzles/${puzzleId}?competition_id=${competitionId}`);
   }
 
@@ -760,7 +763,7 @@ app.post('/puzzles/:id/hints/:hint_id/unlock', requireAuth, async (req, res) => 
     return res.redirect(`/puzzles/${puzzleId}?competition_id=${competitionId}`);
   }
 
-  // 普通用户：检查提示点
+  // 普通用户：检查余额
   const available = await getUserAvailableHintPoints(competitionId, userId);
   if (available === null) {
     return res.redirect(`/puzzles/${puzzleId}?competition_id=${competitionId}`);
@@ -769,7 +772,7 @@ app.post('/puzzles/:id/hints/:hint_id/unlock', requireAuth, async (req, res) => 
     return res.redirect(`/puzzles/${puzzleId}?competition_id=${competitionId}&hint_error=1`);
   }
 
-  // 记录解锁
+  // 插入解锁记录（带实际消耗）
   await db.execute({
     sql: 'INSERT INTO user_hint_unlocks (competition_id, user_id, puzzle_id, hint_id, cost) VALUES (?, ?, ?, ?, ?)',
     args: [competitionId, userId, puzzleId, hintId, cost]
