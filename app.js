@@ -290,7 +290,8 @@ app.post('/puzzles', requireAuth, requireStaff, async (req, res) => {
     inter_answers = [],
     inter_infos = [],
     hint_titles = [],
-    hint_texts = []
+    hint_texts = [],
+    point_cost = []    // 新增
   } = req.body;
 
   if (!name || name.trim() === '') {
@@ -326,9 +327,10 @@ app.post('/puzzles', requireAuth, requireStaff, async (req, res) => {
       const hintText = hint_texts[i];
       if (hintText && hintText.trim() !== '') {
         const hintTitle = (hint_titles[i] || '').trim();
+        const cost = parseInt(point_cost[i], 10) || 0;  // 新增
         await db.execute({
-          sql: 'INSERT INTO hints (puzzle_id, title, hint_text, sort_order) VALUES (?, ?, ?, ?)',
-          args: [puzzleId, hintTitle, hintText.trim(), i]
+          sql: 'INSERT INTO hints (puzzle_id, title, hint_text, sort_order, point_cost) VALUES (?, ?, ?, ?, ?)',
+          args: [puzzleId, hintTitle, hintText.trim(), i, cost]
         });
       }
     }
@@ -389,7 +391,8 @@ app.post('/puzzles/:id/edit', requireAuth, requireStaff, async (req, res) => {
     inter_answers = [],
     inter_infos = [],
     hint_titles = [],
-    hint_texts = []
+    hint_texts = [],
+    point_cost = []    // 新增
   } = req.body;
 
   if (!name || name.trim() === '') {
@@ -433,9 +436,10 @@ app.post('/puzzles/:id/edit', requireAuth, requireStaff, async (req, res) => {
       const hintText = hint_texts[i];
       if (hintText && hintText.trim() !== '') {
         const hintTitle = (hint_titles[i] || '').trim();
+        const cost = parseInt(point_cost[i], 10) || 0;  // 新增
         await db.execute({
-          sql: 'INSERT INTO hints (puzzle_id, title, hint_text, sort_order) VALUES (?, ?, ?, ?)',
-          args: [puzzleId, hintTitle, hintText.trim(), i]
+          sql: 'INSERT INTO hints (puzzle_id, title, hint_text, sort_order, point_cost) VALUES (?, ?, ?, ?, ?)',
+          args: [puzzleId, hintTitle, hintText.trim(), i, cost]
         });
       }
     }
