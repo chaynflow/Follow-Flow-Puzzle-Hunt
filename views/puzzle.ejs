@@ -44,7 +44,7 @@
     <% if (canViewPuzzle) { %>
       <% if (hintPoints !== null && hintPoints !== undefined) { %>
         <div class="hint-points-box">
-          <strong>当前提示点：</strong> <%= hintPoints %>
+          <strong>当前提示点：</strong> <span id="hintPointsDisplay"><%= hintPoints %></span>
         </div>
       <% } %>
       <% if (hint_error) { %>
@@ -102,10 +102,10 @@
                   </button>
                 </form>
               <% } else if (isUnlocked) { %>
-                <!-- 已解锁：直接显示内容，无需按钮 -->
+                <!-- 已解锁：直接显示内容 -->
                 <div class="hint-unlocked">
                   <strong><%= hint.title || '提示' %>：</strong>
-                  <div class="hint-content" style="display:block; margin-top:5px;">
+                  <div class="hint-content" style="margin-top:5px;">
                     <%- hint.hint_text_html %>
                   </div>
                 </div>
@@ -170,6 +170,26 @@
         }
       });
     });
+
+    // 动态更新提示点
+    const hintPointsElem = document.getElementById('hintPointsDisplay');
+    if (hintPointsElem) {
+      const compId = <%= competitionId %>;
+      async function updateHintPoints() {
+        try {
+          const response = await fetch(`/api/competitions/${compId}/hint-points`);
+          if (response.ok) {
+            const data = await response.json();
+            if (data.hintPoints !== null && data.hintPoints !== undefined) {
+              hintPointsElem.textContent = data.hintPoints;
+            }
+          }
+        } catch (err) {
+          console.error('更新提示点失败:', err);
+        }
+      }
+      setInterval(updateHintPoints, 30000);
+    }
   </script>
 </body>
 </html>

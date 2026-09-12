@@ -53,7 +53,7 @@
         <p><strong>已报名</strong></p>
         <% if (hintPoints !== null) { %>
           <div class="hint-points-box">
-            <strong>当前提示点：</strong> <%= hintPoints %>（增速 <%= hintRate %> 点/分钟）
+            <strong>当前提示点：</strong> <span id="hintPointsDisplay"><%= hintPoints %></span>（增速 <%= hintRate %> 点/分钟）
           </div>
         <% } %>
       <% } %>
@@ -97,5 +97,28 @@
   <% if (isStaff) { %>
     <a href="/competitions/<%= competition.id %>/edit" style="color:#007bff;">编辑比赛</a>
   <% } %>
+
+  <script>
+    // 仅当存在提示点显示元素时才定时更新
+    const hintPointsElem = document.getElementById('hintPointsDisplay');
+    if (hintPointsElem) {
+      const compId = <%= competition.id %>;
+      async function updateHintPoints() {
+        try {
+          const response = await fetch(`/api/competitions/${compId}/hint-points`);
+          if (response.ok) {
+            const data = await response.json();
+            if (data.hintPoints !== null && data.hintPoints !== undefined) {
+              hintPointsElem.textContent = data.hintPoints;
+            }
+          }
+        } catch (err) {
+          console.error('更新提示点失败:', err);
+        }
+      }
+      // 每 30 秒更新一次
+      setInterval(updateHintPoints, 30000);
+    }
+  </script>
 </body>
 </html>

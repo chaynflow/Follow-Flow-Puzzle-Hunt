@@ -634,7 +634,8 @@ app.get('/puzzles/:id', requireAuth, async (req, res) => {
   const flavorTextHtml = renderMarkdownImages(puzzle.flavor_text);
   const hintsWithHtml = hints.map(hint => ({
     ...hint,
-    hint_text_html: renderMarkdownImages(hint.hint_text)
+    hint_text: hint.hint_text.trim(),          // 去除前后空白
+    hint_text_html: renderMarkdownImages(hint.hint_text.trim())
   }));
 
   const result = req.query.result === 'correct' ? 'correct' :
@@ -971,6 +972,34 @@ app.post('/competitions/:id/register', requireAuth, async (req, res) => {
     });
   }
   res.redirect(`/competitions/${compId}`);
+});
+
+// 获取当前用户在指定比赛的提示点
+app.get('/api/competitions/:id/hint-points', requireAuth, async (req, res) => {
+  const compId = parseInt(req.params.id, 10);
+  if (isNaN(compId)) return res.status(400).json({ error: '无效的比赛ID' });
+  const userId = req.session.userId;
+  const isStaff = (req.session.role === 'root' || req.session.role === 'admin');
+
+  // 检查比赛是否存在
+  const compResult = await db.execute({
+    sql: 'SELECT * FROM competitions WHERE id = ?',
+    args: [compId]
+  });
+  if (compResult.rows.length === 0) return res.status(404).json({ error: '比赛不存在' });
+
+  // 如果用户是 staff，返回 null 或 0？我们让前端隐藏提示点即可
+  if (isStaff) return res.json({ hintPoints: null });
+
+  // 检查是否已报名
+  const regResult = await db.execute({
+    sql: 'SELECT registered_at FROM registrations WHERE competition_id = ? AND user_id = ?',
+    args: [compId, userId]
+  });
+  if (regResult.rows.length === 0) return res.json({ hintPoints: null });
+
+  const availablePoints = await getUserAvailableHintPoints(compId, userId);
+  return res.json({ hintPoints: availablePoints });
 });
 
 // 比赛排行榜
