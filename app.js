@@ -613,21 +613,7 @@ app.get('/puzzles/:id', requireAuth, async (req, res) => {
   // 计算提示点（若从比赛进入且用户已报名）
   let hintPoints = null;
   if (competitionId && !isStaff) {
-    const userId = req.session.userId;
-    const compResult = await db.execute({
-      sql: 'SELECT * FROM competitions WHERE id = ?',
-      args: [competitionId]
-    });
-    const competition = compResult.rows[0];
-    if (competition) {
-      const regResult = await db.execute({
-        sql: 'SELECT registered_at FROM registrations WHERE competition_id = ? AND user_id = ?',
-        args: [competitionId, userId]
-      });
-      if (regResult.rows.length > 0) {
-        hintPoints = calculateHintPoints(competition, regResult.rows[0].registered_at);
-      }
-    }
+    hintPoints = await getUserAvailableHintPoints(competitionId, req.session.userId);
   }
 
   const descriptionHtml = renderMarkdownImages(puzzle.description);
@@ -964,7 +950,7 @@ app.get('/competitions/:id', requireAuth, async (req, res) => {
   // 计算提示点
   let hintPoints = null;
   if (isRegistered && !isStaff) {
-    hintPoints = calculateHintPoints(competition, registeredAt);
+    hintPoints = await getUserAvailableHintPoints(compId, userId);
   }
 
   const cpResult = await db.execute({
