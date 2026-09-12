@@ -53,7 +53,7 @@
         <p><strong>已报名</strong></p>
         <% if (hintPoints !== null) { %>
           <div class="hint-points-box">
-            <strong>当前提示点：</strong> <span id="hintPointsDisplay"><%= hintPoints %></span>（增速 <%= hintRate %> 点/分钟）
+            <strong>当前提示点：</strong> <span id="hintPointsDisplay"><%= Math.floor(hintPoints) %></span>（增速 <%= hintRate %> 点/分钟）
           </div>
         <% } %>
       <% } %>
@@ -109,7 +109,7 @@
           if (response.ok) {
             const data = await response.json();
             if (data.hintPoints !== null && data.hintPoints !== undefined) {
-              hintPointsElem.textContent = data.hintPoints;
+              hintPointsElem.textContent = Math.floor(data.hintPoints);
             }
           }
         } catch (err) {

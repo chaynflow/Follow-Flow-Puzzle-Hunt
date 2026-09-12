@@ -20,6 +20,7 @@
     .rule-row input[name="unlock_ids[]"] { width: 180px; }
     .rule-row input[name="unlock_counts[]"] { width: 80px; }
     .rule-row select[name="is_meta[]"] { width: 90px; }
+    .rule-row input[name="hint_point_multipliers[]"] { width: 100px; }
   </style>
 </head>
 <body>
@@ -55,30 +56,32 @@
             <% rules.forEach((rule, idx) => { %>
               <div class="rule-row">
                 <input type="text" name="puzzle_ids[]" placeholder="题目编号" value="<%= rule.puzzle_id %>" required>
-                <input type="text" name="unlock_ids[]" placeholder="前置题目编号（逗号分隔，留空则比赛开始即可见）" value="<%= rule.unlock_puzzle_ids || '' %>">
+                <input type="text" name="unlock_ids[]" placeholder="前置题目编号（逗号分隔）" value="<%= rule.unlock_puzzle_ids || '' %>">
                 <input type="text" name="unlock_counts[]" placeholder="所需完成数量" value="<%= rule.unlock_required_count || '' %>">
                 <select name="is_meta[]">
                   <option value="0" <%= rule.is_meta == 0 ? 'selected' : '' %>>普通题</option>
                   <option value="1" <%= rule.is_meta == 1 ? 'selected' : '' %>>Meta题</option>
                 </select>
+                <input type="number" step="0.1" min="0" name="hint_point_multipliers[]" placeholder="提示点倍率" value="<%= rule.hint_point_multiplier || 1 %>">
                 <button type="button" class="remove-btn">删除</button>
               </div>
             <% }) %>
           <% } else { %>
             <div class="rule-row">
               <input type="text" name="puzzle_ids[]" placeholder="题目编号" required>
-              <input type="text" name="unlock_ids[]" placeholder="前置题目编号（逗号分隔，留空则比赛开始即可见）">
+              <input type="text" name="unlock_ids[]" placeholder="前置题目编号（逗号分隔）">
               <input type="text" name="unlock_counts[]" placeholder="所需完成数量">
               <select name="is_meta[]">
                 <option value="0" selected>普通题</option>
                 <option value="1">Meta题</option>
               </select>
+              <input type="number" step="0.1" min="0" name="hint_point_multipliers[]" placeholder="提示点倍率" value="1">
               <button type="button" class="remove-btn">删除</button>
             </div>
           <% } %>
         </div>
         <button type="button" id="addRuleBtn" class="add-rule-btn">添加题目规则</button>
-        <div class="help-text">每个规则：目标题目ID；前置题目ID（逗号分隔）；需要在前置中完成的数量。留空前置则比赛开始后即可访问。Meta题会在题目名前显示彩色标签。</div>
+        <div class="help-text">每个规则：目标题目ID；前置题目ID（逗号分隔）；需要在前置中完成的数量；提示点倍率。留空前置则比赛开始后即可访问。Meta题会在题目名前显示彩色标签。</div>
       </div>
 
       <button type="submit"><%= isEdit ? '保存修改' : '创建比赛' %></button>
@@ -93,12 +96,13 @@
       row.className = 'rule-row';
       row.innerHTML = `
         <input type="text" name="puzzle_ids[]" placeholder="题目编号" required>
-        <input type="text" name="unlock_ids[]" placeholder="前置题目编号（逗号分隔，留空则比赛开始即可见）">
+        <input type="text" name="unlock_ids[]" placeholder="前置题目编号（逗号分隔）">
         <input type="text" name="unlock_counts[]" placeholder="所需完成数量">
         <select name="is_meta[]">
           <option value="0" selected>普通题</option>
           <option value="1">Meta题</option>
         </select>
+        <input type="number" step="0.1" min="0" name="hint_point_multipliers[]" placeholder="提示点倍率" value="1">
         <button type="button" class="remove-btn">删除</button>
       `;
       container.appendChild(row);

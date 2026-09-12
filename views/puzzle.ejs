@@ -44,7 +44,7 @@
     <% if (canViewPuzzle) { %>
       <% if (hintPoints !== null && hintPoints !== undefined) { %>
         <div class="hint-points-box">
-          <strong>当前提示点：</strong> <span id="hintPointsDisplay"><%= hintPoints %></span>
+          <strong>当前提示点：</strong> <span id="hintPointsDisplay"><%= Math.floor(hintPoints) %></span>
         </div>
       <% } %>
       <% if (hint_error) { %>
@@ -95,10 +95,10 @@
             <div class="hint-item">
               <% if (competitionId && !isStaff && !isUnlocked) { %>
                 <!-- 未解锁，消耗提示点 -->
-                <form action="/puzzles/<%= puzzle.id %>/hints/<%= hint.id %>/unlock" method="POST" onsubmit="return confirm('消耗 <%= hint.point_cost || 0 %> 提示点打开该提示？');">
+                <form action="/puzzles/<%= puzzle.id %>/hints/<%= hint.id %>/unlock" method="POST" onsubmit="return confirm('消耗 <%= hint.effective_cost %> 提示点打开该提示？');">
                   <input type="hidden" name="competition_id" value="<%= competitionId %>">
                   <button type="submit" class="hint-toggle-btn">
-                    消耗 <%= hint.point_cost || 0 %> 点显示提示<%= index + 1 %><% if (hint.title) { %>：<%= hint.title %><% } %>
+                    消耗 <%= hint.effective_cost %> 点显示提示<%= index + 1 %><% if (hint.title) { %>：<%= hint.title %><% } %>
                   </button>
                 </form>
               <% } else if (isUnlocked) { %>
@@ -181,7 +181,7 @@
           if (response.ok) {
             const data = await response.json();
             if (data.hintPoints !== null && data.hintPoints !== undefined) {
-              hintPointsElem.textContent = data.hintPoints;
+              hintPointsElem.textContent = Math.floor(data.hintPoints);
             }
           }
         } catch (err) {

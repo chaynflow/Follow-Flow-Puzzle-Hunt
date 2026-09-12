@@ -632,11 +632,26 @@ app.get('/puzzles/:id', requireAuth, async (req, res) => {
 
   const descriptionHtml = renderMarkdownImages(puzzle.description);
   const flavorTextHtml = renderMarkdownImages(puzzle.flavor_text);
-  const hintsWithHtml = hints.map(hint => ({
-    ...hint,
-    hint_text: hint.hint_text.trim(),          // 去除前后空白
-    hint_text_html: renderMarkdownImages(hint.hint_text.trim())
-  }));
+    // 在得到 hints 后
+  let hintMultiplier = 1;
+  if (competitionId && !isStaff) {
+    const multResult = await db.execute({
+      sql: 'SELECT hint_point_multiplier FROM competition_puzzles WHERE competition_id = ? AND puzzle_id = ?',
+      args: [competitionId, puzzleId]
+    });
+    if (multResult.rows.length > 0) {
+      hintMultiplier = multResult.rows[0].hint_point_multiplier || 1;
+    }
+  }
+
+  const hintsWithHtml = hints.map(hint => {
+    const effectiveCost = Math.ceil((hint.point_cost || 0) * hintMultiplier);
+    return {
+      ...hint,
+      effective_cost: effectiveCost,
+      hint_text_html: renderMarkdownImages(hint.hint_text.trim())
+    };
+  });
 
   const result = req.query.result === 'correct' ? 'correct' :
                  req.query.result === 'incorrect' ? 'incorrect' :
@@ -773,6 +788,7 @@ app.post('/competitions', requireAuth, requireStaff, async (req, res) => {
   const unlockIds = req.body.unlock_ids || [];
   const unlockCounts = req.body.unlock_counts || [];
   const isMeta = req.body.is_meta || [];
+  const hintMultipliers = req.body.hint_point_multipliers || []; 
 
   for (let i = 0; i < puzzleIds.length; i++) {
     const pid = parseInt(puzzleIds[i], 10);
@@ -780,6 +796,7 @@ app.post('/competitions', requireAuth, requireStaff, async (req, res) => {
       const unlock = unlockIds[i] ? unlockIds[i].trim() : '';
       const count = parseInt(unlockCounts[i], 10) || 0;
       const meta = parseInt(isMeta[i], 10) || 0;
+      const multiplier = parseFloat(hintMultipliers[i]) || 1.0; // 新增
       await db.execute({
         sql: `INSERT OR IGNORE INTO competition_puzzles
               (competition_id, puzzle_id, sort_order, unlock_puzzle_ids, unlock_required_count, is_meta)
@@ -843,18 +860,21 @@ app.post('/competitions/:id/edit', requireAuth, requireStaff, async (req, res) =
   const unlockIds = req.body.unlock_ids || [];
   const unlockCounts = req.body.unlock_counts || [];
   const isMeta = req.body.is_meta || [];
+  const hintMultipliers = req.body.hint_point_multipliers || []; // 新增
 
+  // 删除旧数据后插入新数据
   for (let i = 0; i < puzzleIds.length; i++) {
     const pid = parseInt(puzzleIds[i], 10);
     if (!isNaN(pid)) {
       const unlock = unlockIds[i] ? unlockIds[i].trim() : '';
       const count = parseInt(unlockCounts[i], 10) || 0;
       const meta = parseInt(isMeta[i], 10) || 0;
+      const multiplier = parseFloat(hintMultipliers[i]) || 1.0; // 新增
       await db.execute({
         sql: `INSERT OR IGNORE INTO competition_puzzles
-              (competition_id, puzzle_id, sort_order, unlock_puzzle_ids, unlock_required_count, is_meta)
-              VALUES (?, ?, ?, ?, ?, ?)`,
-        args: [compId, pid, i, unlock, count, meta]
+              (competition_id, puzzle_id, sort_order, unlock_puzzle_ids, unlock_required_count, is_meta, hint_point_multiplier)
+              VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        args: [compId, pid, i, unlock, count, meta, multiplier]
       });
     }
   }
@@ -1078,9 +1098,15 @@ app.post('/puzzles/:id/hints/:hint_id/unlock', requireAuth, async (req, res) => 
     if (existing.rows.length > 0) {
       return res.redirect(`/puzzles/${puzzleId}?competition_id=${competitionId}`);
     }
-
-    const cost = Number(hint.point_cost) || 0;
-
+    let hintMultiplier = 1;
+    const multResult = await db.execute({
+      sql: 'SELECT hint_point_multiplier FROM competition_puzzles WHERE competition_id = ? AND puzzle_id = ?',
+      args: [competitionId, puzzleId]
+    });
+    if (multResult.rows.length > 0) {
+      hintMultiplier = multResult.rows[0].hint_point_multiplier || 1;
+    }
+    const cost = Math.ceil((hint.point_cost || 0) * hintMultiplier);
     if (!isStaff) {
       const available = await getUserAvailableHintPoints(competitionId, userId);
       if (available === null) {

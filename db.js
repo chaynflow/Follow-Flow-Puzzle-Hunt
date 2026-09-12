@@ -141,9 +141,12 @@ async function initDB() {
       FOREIGN KEY (puzzle_id) REFERENCES puzzles(id) ON DELETE CASCADE
     )
   `);
-
+  // 在创建 competition_puzzles 表之后，添加列（如果不存在）
   const cpColumnsResult = await db.execute("PRAGMA table_info(competition_puzzles)");
   const cpColumns = cpColumnsResult.rows.map(col => col.name);
+  if (!cpColumns.includes('hint_point_multiplier')) {
+    await db.execute("ALTER TABLE competition_puzzles ADD COLUMN hint_point_multiplier REAL DEFAULT 1.0");
+  }
   if (!cpColumns.includes('unlock_puzzle_ids')) {
     await db.execute("ALTER TABLE competition_puzzles ADD COLUMN unlock_puzzle_ids TEXT");
   }
