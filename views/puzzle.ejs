@@ -23,10 +23,11 @@
     .result.incorrect { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
     .result.intermediate { background: #fff3cd; color: #856404; border: 1px solid #ffeeba; }
     .hint-section { margin: 15px 0; }
-    .hint-item { margin-bottom: 5px; }
-    .hint-content { background: #fff3cd; padding: 10px; border-radius: 5px; margin-top: 5px; display: none; white-space: pre-line; }
+    .hint-item { margin-bottom: 10px; }
+    .hint-content { background: #fff3cd; padding: 10px; border-radius: 5px; margin-top: 5px; white-space: pre-line; }
     .hint-content img { max-width: 100%; height: auto; }
     .hint-toggle-btn { background: #ffc107; color: #212529; border: none; padding: 5px 10px; cursor: pointer; border-radius: 3px; }
+    .hint-unlocked { background: #e9ecef; padding: 10px; border-radius: 5px; margin-top: 5px; }
     .admin-answer { background: #e9ecef; padding: 10px; border-radius: 5px; margin-top: 10px; }
     .admin-intermediate { white-space: pre-line; }
     .edit-link { color: #007bff; text-decoration: none; margin-left: 10px; }
@@ -100,16 +101,23 @@
                     消耗 <%= hint.point_cost || 0 %> 点显示提示<%= index + 1 %><% if (hint.title) { %>：<%= hint.title %><% } %>
                   </button>
                 </form>
+              <% } else if (isUnlocked) { %>
+                <!-- 已解锁：直接显示内容，无需按钮 -->
+                <div class="hint-unlocked">
+                  <strong><%= hint.title || '提示' %>：</strong>
+                  <div class="hint-content" style="display:block; margin-top:5px;">
+                    <%- hint.hint_text_html %>
+                  </div>
+                </div>
               <% } else { %>
-                <!-- 已解锁或非比赛/管理员模式 -->
+                <!-- 非比赛模式或 staff：可显示/隐藏 -->
                 <button class="hint-toggle-btn" 
                         data-hint-id="hint-<%= hint.id %>" 
                         data-title="<%= hint.title || '' %>" 
-                        data-index="<%= index + 1 %>"
-                        <%= isUnlocked ? 'disabled' : '' %>>
-                  <%= isUnlocked ? '已解锁' : '显示提示' %><%= index + 1 %><% if (hint.title) { %>：<%= hint.title %><% } %>
+                        data-index="<%= index + 1 %>">
+                  显示提示<%= index + 1 %><% if (hint.title) { %>：<%= hint.title %><% } %>
                 </button>
-                <div class="hint-content" id="hint-<%= hint.id %>" <%= isUnlocked ? 'style="display:block;"' : '' %>>
+                <div class="hint-content" id="hint-<%= hint.id %>" style="display:none;">
                   <strong><%= hint.title || '提示' %>：</strong> <%- hint.hint_text_html %>
                 </div>
               <% } %>
@@ -144,18 +152,20 @@
   </div>
 
   <script>
-    // 处理已解锁的提示按钮（禁用状态无需 JS），仅对普通提示按钮添加切换事件
-    document.querySelectorAll('.hint-toggle-btn:not([disabled])').forEach(btn => {
+    // 仅对普通可切换按钮绑定事件
+    document.querySelectorAll('.hint-toggle-btn').forEach(btn => {
       btn.addEventListener('click', function() {
         const hintId = this.getAttribute('data-hint-id');
-        const content = document.getElementById(hintId);
-        if (content) {
-          if (content.style.display === 'none' || content.style.display === '') {
-            content.style.display = 'block';
-            this.textContent = '隐藏提示' + this.getAttribute('data-index');
-          } else {
-            content.style.display = 'none';
-            this.textContent = '显示提示' + this.getAttribute('data-index') + (this.getAttribute('data-title') !== '' ? '：' + this.getAttribute('data-title') : '');
+        if (hintId) {
+          const content = document.getElementById(hintId);
+          if (content) {
+            if (content.style.display === 'none') {
+              content.style.display = 'block';
+              this.textContent = '隐藏提示' + this.getAttribute('data-index');
+            } else {
+              content.style.display = 'none';
+              this.textContent = '显示提示' + this.getAttribute('data-index') + (this.getAttribute('data-title') !== '' ? '：' + this.getAttribute('data-title') : '');
+            }
           }
         }
       });
