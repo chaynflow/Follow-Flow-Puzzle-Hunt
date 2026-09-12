@@ -1,167 +1,165 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>谜题详情 - Follow-Flow Puzzle Hunt</title>
-    <style>
-        body { font-family: Arial, sans-serif; max-width: 800px; margin: 30px auto; padding: 20px; }
-        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
-        .back-link { color: #007bff; text-decoration: none; }
-        .puzzle-card { background: #f8f9fa; padding: 25px; border-radius: 8px; }
-        .puzzle-title { font-size: 1.5em; font-weight: bold; margin-bottom: 10px; }
-        .flavor-text { font-style: italic; color: #555; margin: 5px 0; white-space: pre-line; }
-        .description-text { white-space: pre-line; margin: 10px 0; }
-        .description-text img, .flavor-text img { max-width: 100%; height: auto; }
-        .answer-form { margin-top: 25px; }
-        .answer-form input { width: 100%; padding: 10px; margin-bottom: 10px; box-sizing: border-box; }
-        .answer-form button { padding: 10px 20px; background: #28a745; color: white; border: none; cursor: pointer; }
-        .result { padding: 12px; margin: 20px 0; border-radius: 5px; font-weight: bold; }
-        .result.correct { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
-        .result.incorrect { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
-        .result.intermediate { background: #fff3cd; color: #856404; border: 1px solid #ffeeba; }
-        .hint-section { margin: 15px 0; }
-        .hint-item { margin-bottom: 10px; }
-        .hint-content { background: #fff3cd; padding: 10px; border-radius: 5px; margin-top: 5px; display: none; white-space: pre-line; }
-        .hint-content img { max-width: 100%; height: auto; }
-        .hint-toggle-btn { background: #ffc107; color: #212529; border: none; padding: 5px 10px; cursor: pointer; border-radius: 3px; }
-        .hint-unlock-btn { background: #007bff; color: white; border: none; padding: 5px 10px; cursor: pointer; border-radius: 3px; }
-        .admin-answer { background: #e9ecef; padding: 10px; border-radius: 5px; margin-top: 10px; }
-        .admin-intermediate { white-space: pre-line; }
-        .edit-link { color: #007bff; text-decoration: none; margin-left: 10px; }
-        .error-msg { color: red; margin: 10px 0; }
-        .available-points { background: #d1ecf1; padding: 10px; border-radius: 5px; margin-bottom: 15px; }
-    </style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>谜题详情 - Follow-Flow Puzzle Hunt</title>
+  <style>
+    body { font-family: Arial, sans-serif; max-width: 800px; margin: 30px auto; padding: 20px; }
+    .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+    .back-link { color: #007bff; text-decoration: none; }
+    .puzzle-card { background: #f8f9fa; padding: 25px; border-radius: 8px; }
+    .puzzle-title { font-size: 1.5em; font-weight: bold; margin-bottom: 10px; }
+    .flavor-text { font-style: italic; color: #555; margin: 5px 0; white-space: pre-line; }
+    .description-text { white-space: pre-line; margin: 10px 0; }
+    .description-text img { max-width: 100%; height: auto; display: block; margin: 10px 0; }
+    .flavor-text img { max-width: 100%; height: auto; }
+    .hint-points-box { background: #e9f7ef; padding: 10px; border-radius: 5px; margin-bottom: 15px; }
+    .answer-form { margin-top: 25px; }
+    .answer-form input { width: 100%; padding: 10px; margin-bottom: 10px; box-sizing: border-box; }
+    .answer-form button { padding: 10px 20px; background: #28a745; color: white; border: none; cursor: pointer; }
+    .result { padding: 12px; margin: 20px 0; border-radius: 5px; font-weight: bold; }
+    .result.correct { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+    .result.incorrect { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+    .result.intermediate { background: #fff3cd; color: #856404; border: 1px solid #ffeeba; }
+    .hint-section { margin: 15px 0; }
+    .hint-item { margin-bottom: 5px; }
+    .hint-content { background: #fff3cd; padding: 10px; border-radius: 5px; margin-top: 5px; display: none; white-space: pre-line; }
+    .hint-content img { max-width: 100%; height: auto; }
+    .hint-toggle-btn { background: #ffc107; color: #212529; border: none; padding: 5px 10px; cursor: pointer; border-radius: 3px; }
+    .admin-answer { background: #e9ecef; padding: 10px; border-radius: 5px; margin-top: 10px; }
+    .admin-intermediate { white-space: pre-line; }
+    .edit-link { color: #007bff; text-decoration: none; margin-left: 10px; }
+    .error-msg { color: red; margin-bottom: 10px; }
+  </style>
 </head>
 <body>
-    <div class="header">
-        <h1>谜题详情</h1>
-        <a href="/dashboard" class="back-link">&larr; 返回仪表板</a>
-    </div>
+  <div class="header">
+    <h1>谜题详情</h1>
+    <a href="/dashboard" class="back-link">&larr; 返回仪表板</a>
+  </div>
 
-    <div class="puzzle-card">
-        <% if (canViewPuzzle) { %>
-            <% if (isStaff) { %>
-                <div class="available-points">管理员模式，无需消耗提示点。</div>
-            <% } else if (availablePoints !== null && availablePoints !== undefined) { %>
-                <div class="available-points">
-                    当前可用提示点：<strong><%= availablePoints %></strong>
-                </div>
-            <% } %>
-            <% if (hint_error) { %>
-                <div class="error-msg">提示点不足，无法打开该提示。</div>
-            <% } %>
+  <div class="puzzle-card">
+    <% if (canViewPuzzle) { %>
+      <% if (hintPoints !== null && hintPoints !== undefined) { %>
+        <div class="hint-points-box">
+          <strong>当前提示点：</strong> <%= hintPoints %>
+        </div>
+      <% } %>
+      <% if (hint_error) { %>
+        <div class="error-msg">提示点不足，无法打开该提示。</div>
+      <% } %>
 
-            <div class="puzzle-title">
-                <% if (puzzle.tags) { %>【<%= puzzle.tags %>】<% } %>
-                <%= puzzle.name %>
-            </div>
-
-            <% if (flavorTextHtml) { %>
-                <p class="flavor-text"><em><%- flavorTextHtml %></em></p>
-            <% } %>
-
-            <% if (descriptionHtml) { %>
-                <h3>题面</h3>
-                <p class="description-text"><%- descriptionHtml %></p>
-            <% } %>
-
-            <!-- 管理信息 -->
-            <% if (isStaff) { %>
-                <div class="admin-answer">
-                    <h3>管理信息（仅 staff 可见）
-                        <a href="/puzzles/<%= puzzle.id %>/edit" class="edit-link">编辑</a>
-                    </h3>
-                    <p><strong>答案：</strong> <%= puzzle.answer %></p>
-                    <p><strong>可见性：</strong> <%= puzzle.is_visible ? '可见' : '隐藏' %></p>
-                    <% if (intermediateAnswers.length > 0) { %>
-                        <p><strong>中间答案：</strong></p>
-                        <ul class="admin-intermediate">
-                            <% intermediateAnswers.forEach(ia => { %>
-                                <li><%= ia.answer %> <% if (ia.info) { %> - <%= ia.info %><% } %></li>
-                            <% }) %>
-                        </ul>
-                    <% } %>
-                </div>
-            <% } %>
-
-            <!-- 提示区域 -->
-            <% if (hints.length > 0) { %>
-                <div class="hint-section">
-                    <h3>提示</h3>
-                    <% hints.forEach((hint, index) => { 
-                        const isUnlocked = hintUnlocks && hintUnlocks.includes(hint.id);
-                    %>
-                        <div class="hint-item">
-                            <% if (competitionId && !isStaff && !isUnlocked) { %>
-                                <!-- 未解锁，显示购买按钮 -->
-                                <form action="/puzzles/<%= puzzle.id %>/hints/<%= hint.id %>/unlock" method="POST" 
-                                      style="display:inline;" 
-                                      onsubmit="return confirm('消耗 <%= hint.point_cost || 0 %> 提示点打开该提示？');">
-                                    <input type="hidden" name="competition_id" value="<%= competitionId %>">
-                                    <button type="submit" class="hint-unlock-btn">
-                                        消耗 <%= hint.point_cost || 0 %> 点显示提示<%= index + 1 %><% if (hint.title) { %>：<%= hint.title %><% } %>
-                                    </button>
-                                </form>
-                            <% } else { %>
-                                <!-- 已解锁或非比赛模式或管理员 -->
-                                <button class="hint-toggle-btn" 
-                                        data-hint-id="hint-<%= hint.id %>" 
-                                        data-title="<%= hint.title || '' %>" 
-                                        data-index="<%= index + 1 %>"
-                                        <%= isUnlocked ? 'disabled' : '' %>>
-                                    <%= isUnlocked ? '已解锁' : '显示提示' %><%= index + 1 %><% if (hint.title) { %>：<%= hint.title %><% } %>
-                                </button>
-                                <div class="hint-content" id="hint-<%= hint.id %>" <%= isUnlocked ? 'style="display:block;"' : '' %>>
-                                    <strong><%= hint.title || '提示' %>：</strong> <%- hint.hint_text_html %>
-                                </div>
-                            <% } %>
-                        </div>
-                    <% }) %>
-                </div>
-            <% } %>
-
-            <!-- 答案提交 -->
-            <div class="answer-form">
-                <h3>提交你的答案</h3>
-                <% if (result === 'correct') { %>
-                    <div class="result correct">✅ 回答正确！</div>
-                <% } else if (result === 'intermediate') { %>
-                    <% if (intermediateInfo) { %>
-                        <div class="result intermediate"><%= intermediateInfo %></div>
-                    <% } %>
-                <% } else if (result === 'incorrect') { %>
-                    <div class="result incorrect">❌ 回答错误，请再试一次。</div>
-                <% } %>
-                <form action="/puzzles/<%= puzzle.id %>/answer" method="POST">
-                    <input type="text" name="answer" placeholder="输入答案" required>
-                    <% if (typeof competitionId !== 'undefined' && competitionId) { %>
-                        <input type="hidden" name="competition_id" value="<%= competitionId %>">
-                    <% } %>
-                    <button type="submit">提交答案</button>
-                </form>
-            </div>
-        <% } else { %>
-            <p>谜题不存在或已隐藏。</p>
+      <div class="puzzle-title">
+        <% if (puzzle.tags) { %>
+          【<%= puzzle.tags %>】
         <% } %>
-    </div>
+        <%= puzzle.name %>
+      </div>
 
-    <script>
-        // 对于未禁用的按钮，点击切换显示/隐藏
-        document.querySelectorAll('.hint-toggle-btn:not([disabled])').forEach(btn => {
-            btn.addEventListener('click', function() {
-                const hintId = this.getAttribute('data-hint-id');
-                const content = document.getElementById(hintId);
-                if (content.style.display === 'none' || content.style.display === '') {
-                    content.style.display = 'block';
-                    this.textContent = '隐藏提示' + this.getAttribute('data-index');
-                } else {
-                    content.style.display = 'none';
-                    this.textContent = '显示提示' + this.getAttribute('data-index') + 
-                                        (this.getAttribute('data-title') !== '' ? '：' + this.getAttribute('data-title') : '');
-                }
-            });
-        });
-    </script>
+      <% if (flavorTextHtml) { %>
+        <p class="flavor-text"><em><%- flavorTextHtml %></em></p>
+      <% } %>
+
+      <% if (descriptionHtml) { %>
+        <h3>题面</h3>
+        <p class="description-text"><%- descriptionHtml %></p>
+      <% } %>
+
+      <% if (isStaff) { %>
+        <div class="admin-answer">
+          <h3>管理信息（仅 staff 可见）
+            <a href="/puzzles/<%= puzzle.id %>/edit" class="edit-link">编辑</a>
+          </h3>
+          <p><strong>答案：</strong> <%= puzzle.answer %></p>
+          <p><strong>可见性：</strong> <%= puzzle.is_visible ? '可见' : '隐藏' %></p>
+          <% if (intermediateAnswers.length > 0) { %>
+            <p><strong>中间答案：</strong></p>
+            <ul class="admin-intermediate">
+              <% intermediateAnswers.forEach(ia => { %>
+                <li><%= ia.answer %> <% if (ia.info) { %> - <%= ia.info %><% } %></li>
+              <% }) %>
+            </ul>
+          <% } %>
+        </div>
+      <% } %>
+
+      <!-- 提示区域 -->
+      <% if (hints.length > 0) { %>
+        <div class="hint-section">
+          <h3>提示</h3>
+          <% hints.forEach((hint, index) => { 
+             const isUnlocked = hintUnlocks && hintUnlocks.includes(hint.id);
+          %>
+            <div class="hint-item">
+              <% if (competitionId && !isStaff && !isUnlocked) { %>
+                <!-- 未解锁，消耗提示点 -->
+                <form action="/puzzles/<%= puzzle.id %>/hints/<%= hint.id %>/unlock" method="POST" onsubmit="return confirm('消耗 <%= hint.point_cost || 0 %> 提示点打开该提示？');">
+                  <input type="hidden" name="competition_id" value="<%= competitionId %>">
+                  <button type="submit" class="hint-toggle-btn">
+                    消耗 <%= hint.point_cost || 0 %> 点显示提示<%= index + 1 %><% if (hint.title) { %>：<%= hint.title %><% } %>
+                  </button>
+                </form>
+              <% } else { %>
+                <!-- 已解锁或非比赛/管理员模式 -->
+                <button class="hint-toggle-btn" 
+                        data-hint-id="hint-<%= hint.id %>" 
+                        data-title="<%= hint.title || '' %>" 
+                        data-index="<%= index + 1 %>"
+                        <%= isUnlocked ? 'disabled' : '' %>>
+                  <%= isUnlocked ? '已解锁' : '显示提示' %><%= index + 1 %><% if (hint.title) { %>：<%= hint.title %><% } %>
+                </button>
+                <div class="hint-content" id="hint-<%= hint.id %>" <%= isUnlocked ? 'style="display:block;"' : '' %>>
+                  <strong><%= hint.title || '提示' %>：</strong> <%- hint.hint_text_html %>
+                </div>
+              <% } %>
+            </div>
+          <% }) %>
+        </div>
+      <% } %>
+
+      <!-- 答案提交区 -->
+      <div class="answer-form">
+        <h3>提交你的答案</h3>
+        <% if (result === 'correct') { %>
+          <div class="result correct">✅ 回答正确！</div>
+        <% } else if (result === 'intermediate') { %>
+          <% if (intermediateInfo) { %>
+            <div class="result intermediate"><%= intermediateInfo %></div>
+          <% } %>
+        <% } else if (result === 'incorrect') { %>
+          <div class="result incorrect">❌ 回答错误，请再试一次。</div>
+        <% } %>
+        <form action="/puzzles/<%= puzzle.id %>/answer" method="POST">
+          <input type="text" name="answer" placeholder="输入答案" required>
+          <% if (typeof competitionId !== 'undefined' && competitionId) { %>
+            <input type="hidden" name="competition_id" value="<%= competitionId %>">
+          <% } %>
+          <button type="submit">提交答案</button>
+        </form>
+      </div>
+    <% } else { %>
+      <p>谜题不存在或已隐藏。</p>
+    <% } %>
+  </div>
+
+  <script>
+    // 处理已解锁的提示按钮（禁用状态无需 JS），仅对普通提示按钮添加切换事件
+    document.querySelectorAll('.hint-toggle-btn:not([disabled])').forEach(btn => {
+      btn.addEventListener('click', function() {
+        const hintId = this.getAttribute('data-hint-id');
+        const content = document.getElementById(hintId);
+        if (content) {
+          if (content.style.display === 'none' || content.style.display === '') {
+            content.style.display = 'block';
+            this.textContent = '隐藏提示' + this.getAttribute('data-index');
+          } else {
+            content.style.display = 'none';
+            this.textContent = '显示提示' + this.getAttribute('data-index') + (this.getAttribute('data-title') !== '' ? '：' + this.getAttribute('data-title') : '');
+          }
+        }
+      });
+    });
+  </script>
 </body>
 </html>
