@@ -146,16 +146,20 @@ app.get('/register', (req, res) => {
 });
 
 // 注册处理
+// 注册处理
 app.post('/register', async (req, res) => {
   const { username, email, password, confirm_password } = req.body;
   if (!username || !email || !password || !confirm_password) {
     return res.render('register', { error: '所有字段均为必填' });
   }
+  if (username.length > 20) {
+    return res.render('register', { error: '用户名长度不能超过 20 个字符' });
+  }
+  if (password.length < 8 || password.length > 20) {
+    return res.render('register', { error: '密码长度必须在 8 到 20 个字符之间' });
+  }
   if (password !== confirm_password) {
     return res.render('register', { error: '两次输入的密码不一致' });
-  }
-  if (password.length < 8) {
-    return res.render('register', { error: '密码长度至少为8位' });
   }
 
   const userResult = await db.execute({

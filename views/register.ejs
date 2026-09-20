@@ -19,20 +19,20 @@
   <% } %>
   <form action="/register" method="POST">
     <div>
-      <label>用户名</label>
-      <input type="text" name="username" required>
+      <label>用户名（不超过 20 个字符）</label>
+      <input type="text" name="username" required maxlength="20">
     </div>
     <div>
       <label>邮箱</label>
       <input type="email" name="email" required>
     </div>
     <div>
-      <label>密码（至少8位）</label>
-      <input type="password" name="password" required minlength="8">
+      <label>密码（8 ~ 20 位）</label>
+      <input type="password" name="password" required minlength="8" maxlength="20">
     </div>
     <div>
-      <label>确认密码</label>
-      <input type="password" name="confirm_password" required minlength="8">
+      <label>确认密码（8 ~ 20 位）</label>
+      <input type="password" name="confirm_password" required minlength="8" maxlength="20">
     </div>
     <button type="submit">注册</button>
   </form>
