@@ -202,7 +202,44 @@ async function initDB() {
       FOREIGN KEY (hint_id) REFERENCES hints(id) ON DELETE CASCADE
     )
   `);
+  // 追加到 competition_puzzles 的 PRAGMA 检查块之后
+  if (!cpColumns.includes('max_attempts')) {
+    await db.execute("ALTER TABLE competition_puzzles ADD COLUMN max_attempts INTEGER DEFAULT 0");
+  }
+  if (!cpColumns.includes('attempt_refill_cost')) {
+    await db.execute("ALTER TABLE competition_puzzles ADD COLUMN attempt_refill_cost INTEGER DEFAULT 0");
+  }
 
+  // ==================== 提交次数使用情况表 ====================
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS competition_attempts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      competition_id INTEGER NOT NULL,
+      user_id INTEGER NOT NULL,
+      puzzle_id INTEGER NOT NULL,
+      attempts_used INTEGER DEFAULT 0,
+      extra_attempts INTEGER DEFAULT 0,
+      UNIQUE(competition_id, user_id, puzzle_id),
+      FOREIGN KEY (competition_id) REFERENCES competitions(id) ON DELETE CASCADE,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY (puzzle_id) REFERENCES puzzles(id) ON DELETE CASCADE
+    )
+  `);
+
+  // ==================== 提交次数购买记录表（用于扣减提示点） ====================
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS user_attempt_purchases (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      competition_id INTEGER NOT NULL,
+      user_id INTEGER NOT NULL,
+      puzzle_id INTEGER NOT NULL,
+      cost INTEGER NOT NULL DEFAULT 0,
+      purchased_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (competition_id) REFERENCES competitions(id) ON DELETE CASCADE,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY (puzzle_id) REFERENCES puzzles(id) ON DELETE CASCADE
+    )
+  `);
   // ==================== 处理 root 用户 ====================
   const rootUserResult = await db.execute({
     sql: 'SELECT * FROM users WHERE username = ?',

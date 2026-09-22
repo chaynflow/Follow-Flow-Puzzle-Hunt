@@ -83,11 +83,19 @@ async function getUserAvailableHintPoints(competitionId, userId) {
 
   const totalEarned = calculateHintPoints(competition, registeredAt);
 
-  const spentResult = await db.execute({
+  const hintSpentResult = await db.execute({
     sql: 'SELECT COALESCE(SUM(cost), 0) AS total FROM user_hint_unlocks WHERE competition_id = ? AND user_id = ?',
     args: [competitionId, userId]
   });
-  const totalSpent = spentResult.rows[0].total;
+  const hintSpent = hintSpentResult.rows[0].total;
+
+  const attemptSpentResult = await db.execute({
+    sql: 'SELECT COALESCE(SUM(cost), 0) AS total FROM user_attempt_purchases WHERE competition_id = ? AND user_id = ?',
+    args: [competitionId, userId]
+  });
+  const attemptSpent = attemptSpentResult.rows[0].total;
+
+  return totalEarned - hintSpent - attemptSpent;
 
   return totalEarned - totalSpent;
 }
@@ -585,6 +593,29 @@ async function canUserViewPuzzle(userId, puzzleId, isStaff, competitionId = null
   return false;
 }
 
+async function ensureAttemptRow(competitionId, userId, puzzleId) {
+  await db.execute({
+    sql: `INSERT OR IGNORE INTO competition_attempts
+          (competition_id, user_id, puzzle_id, attempts_used, extra_attempts)
+          VALUES (?, ?, ?, 0, 0)`,
+    args: [competitionId, userId, puzzleId]
+  });
+}
+
+async function getAttemptInfo(competitionId, userId, puzzleId) {
+  const res = await db.execute({
+    sql: 'SELECT * FROM competition_attempts WHERE competition_id = ? AND user_id = ? AND puzzle_id = ?',
+    args: [competitionId, userId, puzzleId]
+  });
+  return res.rows[0] || { attempts_used: 0, extra_attempts: 0 };
+}
+
+// 返回剩余次数；maxAttempts<=0 表示无限制
+function calcRemainingAttempts(maxAttempts, attemptsUsed, extraAttempts) {
+  if (!maxAttempts || maxAttempts <= 0) return Infinity;
+  return Math.max(0, maxAttempts + (extraAttempts || 0) - (attemptsUsed || 0));
+}
+
 // 谜题详情页
 app.get('/puzzles/:id', requireAuth, async (req, res) => {
   const puzzleId = parseInt(req.params.id, 10);
@@ -662,6 +693,29 @@ app.get('/puzzles/:id', requireAuth, async (req, res) => {
                  req.query.result === 'intermediate' ? 'intermediate' : null;
   const intermediateInfo = req.query.intermediate_info || '';
 
+  let attemptInfo = null;
+  if (competitionId && !isStaff) {
+    const cpResult = await db.execute({
+      sql: 'SELECT max_attempts, attempt_refill_cost FROM competition_puzzles WHERE competition_id = ? AND puzzle_id = ?',
+      args: [competitionId, puzzleId]
+    });
+    if (cpResult.rows.length > 0) {
+      const cp = cpResult.rows[0];
+      const maxAttempts = cp.max_attempts || 0;
+      if (maxAttempts > 0) {
+        const info = await getAttemptInfo(competitionId, req.session.userId, puzzleId);
+        const used = info.attempts_used || 0;
+        const extra = info.extra_attempts || 0;
+        attemptInfo = {
+          max_attempts: maxAttempts,
+          extra_attempts: extra,
+          attempts_used: used,
+          remaining: Math.max(0, maxAttempts + extra - used),
+          refill_cost: cp.attempt_refill_cost || 0
+        };
+      }
+    }
+  }
   res.render('puzzle', {
     puzzle,
     descriptionHtml,
@@ -678,7 +732,8 @@ app.get('/puzzles/:id', requireAuth, async (req, res) => {
     competitionId,
     hintPoints,
     hintUnlocks,
-    hint_error
+    hint_error,
+    attemptInfo
   });
 });
 
@@ -699,6 +754,43 @@ app.post('/puzzles/:id/answer', requireAuth, async (req, res) => {
   const canView = await canUserViewPuzzle(req.session.userId, puzzleId, isStaff, competitionId);
   if (!canView) {
     return res.status(404).send('谜题不存在或已隐藏');
+  }
+
+  // ============ 检查并消耗提交次数 ============
+if (competitionId && !isStaff) {
+    // 已经解出的题不再消耗
+    const solvedResult = await db.execute({
+      sql: 'SELECT 1 FROM competition_answers WHERE competition_id = ? AND user_id = ? AND puzzle_id = ?',
+      args: [competitionId, req.session.userId, puzzleId]
+    });
+    const alreadySolved = solvedResult.rows.length > 0;
+
+    if (!alreadySolved) {
+      const cpResult = await db.execute({
+        sql: 'SELECT max_attempts FROM competition_puzzles WHERE competition_id = ? AND puzzle_id = ?',
+        args: [competitionId, puzzleId]
+      });
+      const maxAttempts = cpResult.rows.length > 0 ? (cpResult.rows[0].max_attempts || 0) : 0;
+
+      if (maxAttempts > 0) {
+        await ensureAttemptRow(competitionId, req.session.userId, puzzleId);
+        const info = await getAttemptInfo(competitionId, req.session.userId, puzzleId);
+        const remaining = calcRemainingAttempts(maxAttempts, info.attempts_used, info.extra_attempts);
+
+        if (remaining <= 0) {
+          return res.redirect(
+            `/puzzles/${puzzleId}?result=no_attempts&competition_id=${competitionId}`
+          );
+        }
+
+        await db.execute({
+          sql: `UPDATE competition_attempts
+                SET attempts_used = attempts_used + 1
+                WHERE competition_id = ? AND user_id = ? AND puzzle_id = ?`,
+          args: [competitionId, req.session.userId, puzzleId]
+        });
+      }
+    }
   }
 
   // 答案比较：忽略大小写和所有空白字符
@@ -739,6 +831,70 @@ app.post('/puzzles/:id/answer', requireAuth, async (req, res) => {
   }
 
   return res.redirect(`/puzzles/${puzzleId}?result=incorrect&competition_id=${competitionId || ''}`);
+});
+
+// 购买提交次数
+app.post('/puzzles/:id/attempts/buy', requireAuth, async (req, res) => {
+  try {
+    const puzzleId = parseInt(req.params.id, 10);
+    const competitionId = req.body.competition_id ? parseInt(req.body.competition_id, 10) : null;
+    if (!competitionId || isNaN(competitionId) || isNaN(puzzleId)) {
+      return res.status(400).send('参数错误');
+    }
+
+    const userId = req.session.userId;
+    const isStaff = (req.session.role === 'root' || req.session.role === 'admin');
+
+    const cpResult = await db.execute({
+      sql: 'SELECT max_attempts, attempt_refill_cost FROM competition_puzzles WHERE competition_id = ? AND puzzle_id = ?',
+      args: [competitionId, puzzleId]
+    });
+    if (cpResult.rows.length === 0) return res.status(404).send('比赛题目规则不存在');
+    const cp = cpResult.rows[0];
+
+    const maxAttempts = cp.max_attempts || 0;
+    const cost = cp.attempt_refill_cost || 0;
+    if (maxAttempts <= 0) {
+      return res.redirect(`/puzzles/${puzzleId}?competition_id=${competitionId}`);
+    }
+
+    // 剩余次数不为 0 时不允许购买
+    await ensureAttemptRow(competitionId, userId, puzzleId);
+    const info = await getAttemptInfo(competitionId, userId, puzzleId);
+    const remaining = calcRemainingAttempts(maxAttempts, info.attempts_used, info.extra_attempts);
+    if (remaining > 0) {
+      return res.redirect(`/puzzles/${puzzleId}?competition_id=${competitionId}`);
+    }
+
+    if (!isStaff) {
+      const available = await getUserAvailableHintPoints(competitionId, userId);
+      if (available === null || available < cost) {
+        return res.redirect(
+          `/puzzles/${puzzleId}?competition_id=${competitionId}&hint_error=1`
+        );
+      }
+    }
+
+    await db.execute({
+      sql: `UPDATE competition_attempts
+            SET extra_attempts = extra_attempts + ?
+            WHERE competition_id = ? AND user_id = ? AND puzzle_id = ?`,
+      args: [maxAttempts, competitionId, userId, puzzleId]
+    });
+
+    if (!isStaff && cost > 0) {
+      await db.execute({
+        sql: `INSERT INTO user_attempt_purchases (competition_id, user_id, puzzle_id, cost)
+              VALUES (?, ?, ?, ?)`,
+        args: [competitionId, userId, puzzleId, cost]
+      });
+    }
+
+    return res.redirect(`/puzzles/${puzzleId}?competition_id=${competitionId}`);
+  } catch (err) {
+    console.error('购买提交次数失败:', err);
+    return res.status(500).send('服务器内部错误');
+  }
 });
 
 // ================= 比赛相关路由 =================
@@ -792,7 +948,9 @@ app.post('/competitions', requireAuth, requireStaff, async (req, res) => {
   const unlockIds = req.body.unlock_ids || [];
   const unlockCounts = req.body.unlock_counts || [];
   const isMeta = req.body.is_meta || [];
-  const hintMultipliers = req.body.hint_point_multipliers || []; 
+  const hintMultipliers = req.body.hint_point_multipliers || [];
+  const maxAttemptsArr = req.body.max_attempts || [];
+  const refillCostArr = req.body.attempt_refill_cost || [];
 
   for (let i = 0; i < puzzleIds.length; i++) {
     const pid = parseInt(puzzleIds[i], 10);
@@ -800,12 +958,15 @@ app.post('/competitions', requireAuth, requireStaff, async (req, res) => {
       const unlock = unlockIds[i] ? unlockIds[i].trim() : '';
       const count = parseInt(unlockCounts[i], 10) || 0;
       const meta = parseInt(isMeta[i], 10) || 0;
-      const multiplier = parseFloat(hintMultipliers[i]) || 1.0; // 新增
+      const multiplier = parseFloat(hintMultipliers[i]) || 1.0;
+      const maxAttempts = parseInt(maxAttemptsArr[i], 10) || 0;
+      const refillCost = parseInt(refillCostArr[i], 10) || 0;
+
       await db.execute({
         sql: `INSERT OR IGNORE INTO competition_puzzles
-              (competition_id, puzzle_id, sort_order, unlock_puzzle_ids, unlock_required_count, is_meta)
-              VALUES (?, ?, ?, ?, ?, ?)`,
-        args: [compId, pid, i, unlock, count, meta]
+              (competition_id, puzzle_id, sort_order, unlock_puzzle_ids, unlock_required_count, is_meta, hint_point_multiplier, max_attempts, attempt_refill_cost)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        args: [compId, pid, i, unlock, count, meta, multiplier, maxAttempts, refillCost]
       });
     }
   }
@@ -864,7 +1025,8 @@ app.post('/competitions/:id/edit', requireAuth, requireStaff, async (req, res) =
   const unlockIds = req.body.unlock_ids || [];
   const unlockCounts = req.body.unlock_counts || [];
   const isMeta = req.body.is_meta || [];
-  const hintMultipliers = req.body.hint_point_multipliers || []; // 新增
+  const maxAttemptsArr = req.body.max_attempts || [];
+  const refillCostArr = req.body.attempt_refill_cost || [];
 
   // 删除旧数据后插入新数据
   for (let i = 0; i < puzzleIds.length; i++) {
@@ -873,12 +1035,14 @@ app.post('/competitions/:id/edit', requireAuth, requireStaff, async (req, res) =
       const unlock = unlockIds[i] ? unlockIds[i].trim() : '';
       const count = parseInt(unlockCounts[i], 10) || 0;
       const meta = parseInt(isMeta[i], 10) || 0;
-      const multiplier = parseFloat(hintMultipliers[i]) || 1.0; // 新增
+      const multiplier = parseFloat(hintMultipliers[i]) || 1.0; 
+      const maxAttempts = parseInt(maxAttemptsArr[i], 10) || 0;
+      const refillCost = parseInt(refillCostArr[i], 10) || 0;
       await db.execute({
         sql: `INSERT OR IGNORE INTO competition_puzzles
-              (competition_id, puzzle_id, sort_order, unlock_puzzle_ids, unlock_required_count, is_meta, hint_point_multiplier)
-              VALUES (?, ?, ?, ?, ?, ?, ?)`,
-        args: [compId, pid, i, unlock, count, meta, multiplier]
+              (competition_id, puzzle_id, sort_order, unlock_puzzle_ids, unlock_required_count, is_meta, hint_point_multiplier, max_attempts, attempt_refill_cost)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        args: [compId, pid, i, unlock, count, meta, multiplier, maxAttempts, refillCost]
       });
     }
   }

@@ -22,6 +22,7 @@
     .result.correct { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
     .result.incorrect { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
     .result.intermediate { background: #fff3cd; color: #856404; border: 1px solid #ffeeba; }
+    .result.no_attempts { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
     .hint-section { margin: 15px 0; }
     .hint-item { margin-bottom: 10px; }
     .hint-content { background: #fff3cd; padding: 10px; border-radius: 5px; margin-top: 5px; white-space: pre-line; }
@@ -32,6 +33,22 @@
     .admin-intermediate { white-space: pre-line; }
     .edit-link { color: #007bff; text-decoration: none; margin-left: 10px; }
     .error-msg { color: red; margin-bottom: 10px; }
+    .attempt-info {
+      background: #fff8e1;
+      border: 1px solid #f0c674;
+      padding: 10px 14px;
+      border-radius: 5px;
+      margin: 15px 0;
+    }
+    .attempt-info .buy-btn {
+      background: #007bff;
+      color: white;
+      border: none;
+      padding: 5px 12px;
+      cursor: pointer;
+      border-radius: 3px;
+      margin-left: 10px;
+    }
   </style>
 </head>
 <body>
@@ -89,7 +106,7 @@
       <% if (hints.length > 0) { %>
         <div class="hint-section">
           <h3>提示</h3>
-          <% hints.forEach((hint, index) => { 
+          <% hints.forEach((hint, index) => {
              const isUnlocked = hintUnlocks && hintUnlocks.includes(hint.id);
           %>
             <div class="hint-item">
@@ -111,9 +128,9 @@
                 </div>
               <% } else { %>
                 <!-- 非比赛模式或 staff：可显示/隐藏 -->
-                <button class="hint-toggle-btn" 
-                        data-hint-id="hint-<%= hint.id %>" 
-                        data-title="<%= hint.title || '' %>" 
+                <button class="hint-toggle-btn"
+                        data-hint-id="hint-<%= hint.id %>"
+                        data-title="<%= hint.title || '' %>"
                         data-index="<%= index + 1 %>">
                   显示提示<%= index + 1 %><% if (hint.title) { %>：<%= hint.title %><% } %>
                 </button>
@@ -129,6 +146,23 @@
       <!-- 答案提交区 -->
       <div class="answer-form">
         <h3>提交你的答案</h3>
+
+        <% if (typeof attemptInfo !== 'undefined' && attemptInfo) { %>
+          <div class="attempt-info">
+            <strong>剩余提交次数：</strong>
+            <%= attemptInfo.remaining %> / <%= attemptInfo.max_attempts + attemptInfo.extra_attempts %>
+            <% if (attemptInfo.remaining === 0 && attemptInfo.refill_cost > 0) { %>
+              <form action="/puzzles/<%= puzzle.id %>/attempts/buy" method="POST" style="display:inline-block;">
+                <input type="hidden" name="competition_id" value="<%= competitionId %>">
+                <button type="submit" class="buy-btn"
+                        onclick="return confirm('确认使用 <%= attemptInfo.refill_cost %> 提示点购买 <%= attemptInfo.max_attempts %> 次提交机会？');">
+                  用 <%= attemptInfo.refill_cost %> 提示点购买 <%= attemptInfo.max_attempts %> 次
+                </button>
+              </form>
+            <% } %>
+          </div>
+        <% } %>
+
         <% if (result === 'correct') { %>
           <div class="result correct">✅ 回答正确！</div>
         <% } else if (result === 'intermediate') { %>
@@ -137,7 +171,10 @@
           <% } %>
         <% } else if (result === 'incorrect') { %>
           <div class="result incorrect">❌ 回答错误，请再试一次。</div>
+        <% } else if (result === 'no_attempts') { %>
+          <div class="result no_attempts">⛔ 本题提交次数已用尽，请先购买更多提交机会。</div>
         <% } %>
+
         <form action="/puzzles/<%= puzzle.id %>/answer" method="POST">
           <input type="text" name="answer" placeholder="输入答案" required>
           <% if (typeof competitionId !== 'undefined' && competitionId) { %>

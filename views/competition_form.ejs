@@ -21,6 +21,8 @@
     .rule-row input[name="unlock_counts[]"] { width: 80px; }
     .rule-row select[name="is_meta[]"] { width: 90px; }
     .rule-row input[name="hint_point_multipliers[]"] { width: 100px; }
+    .rule-row input[name="max_attempts[]"] { width: 100px; }
+    .rule-row input[name="attempt_refill_cost[]"] { width: 120px; }
   </style>
 </head>
 <body>
@@ -63,6 +65,8 @@
                   <option value="1" <%= rule.is_meta == 1 ? 'selected' : '' %>>Meta题</option>
                 </select>
                 <input type="number" step="0.1" min="0" name="hint_point_multipliers[]" placeholder="提示点倍率" value="<%= rule.hint_point_multiplier || 1 %>">
+                <input type="number" min="0" step="1" name="max_attempts[]" placeholder="提交次数上限(0=不限)" value="<%= rule.max_attempts || 0 %>">
+                <input type="number" min="0" step="1" name="attempt_refill_cost[]" placeholder="加购所需提示点" value="<%= rule.attempt_refill_cost || 0 %>">
                 <button type="button" class="remove-btn">删除</button>
               </div>
             <% }) %>
@@ -76,12 +80,19 @@
                 <option value="1">Meta题</option>
               </select>
               <input type="number" step="0.1" min="0" name="hint_point_multipliers[]" placeholder="提示点倍率" value="1">
+              <input type="number" min="0" step="1" name="max_attempts[]" placeholder="提交次数上限(0=不限)" value="0">
+              <input type="number" min="0" step="1" name="attempt_refill_cost[]" placeholder="加购所需提示点" value="0">
               <button type="button" class="remove-btn">删除</button>
             </div>
           <% } %>
         </div>
         <button type="button" id="addRuleBtn" class="add-rule-btn">添加题目规则</button>
-        <div class="help-text">每个规则：目标题目ID；前置题目ID（逗号分隔）；需要在前置中完成的数量；提示点倍率。留空前置则比赛开始后即可访问。Meta题会在题目名前显示彩色标签。</div>
+        <div class="help-text">
+          每个规则：目标题目ID；前置题目ID（逗号分隔）；需要在前置中完成的数量；提示点倍率；
+          <strong>提交次数上限</strong>（0 表示不限制，正整数 k 表示每题最多提交 k 次）；
+          <strong>加购所需提示点</strong>（次数用尽后，花费该数量的提示点可再购买 k 次提交机会）。
+          留空前置则比赛开始后即可访问。Meta 题会在题目名前显示彩色标签。
+        </div>
       </div>
 
       <button type="submit"><%= isEdit ? '保存修改' : '创建比赛' %></button>
@@ -103,6 +114,8 @@
           <option value="1">Meta题</option>
         </select>
         <input type="number" step="0.1" min="0" name="hint_point_multipliers[]" placeholder="提示点倍率" value="1">
+        <input type="number" min="0" step="1" name="max_attempts[]" placeholder="提交次数上限(0=不限)" value="0">
+        <input type="number" min="0" step="1" name="attempt_refill_cost[]" placeholder="加购所需提示点" value="0">
         <button type="button" class="remove-btn">删除</button>
       `;
       container.appendChild(row);
