@@ -738,6 +738,7 @@ app.get('/puzzles/:id', requireAuth, async (req, res) => {
 });
 
 // 提交答案
+// 提交答案
 app.post('/puzzles/:id/answer', requireAuth, async (req, res) => {
   const puzzleId = parseInt(req.params.id, 10);
   const data = await getPuzzleWithDetails(puzzleId);
@@ -756,49 +757,12 @@ app.post('/puzzles/:id/answer', requireAuth, async (req, res) => {
     return res.status(404).send('谜题不存在或已隐藏');
   }
 
-  // ============ 检查并消耗提交次数 ============
-if (competitionId && !isStaff) {
-    // 已经解出的题不再消耗
-    const solvedResult = await db.execute({
-      sql: 'SELECT 1 FROM competition_answers WHERE competition_id = ? AND user_id = ? AND puzzle_id = ?',
-      args: [competitionId, req.session.userId, puzzleId]
-    });
-    const alreadySolved = solvedResult.rows.length > 0;
-
-    if (!alreadySolved) {
-      const cpResult = await db.execute({
-        sql: 'SELECT max_attempts FROM competition_puzzles WHERE competition_id = ? AND puzzle_id = ?',
-        args: [competitionId, puzzleId]
-      });
-      const maxAttempts = cpResult.rows.length > 0 ? (cpResult.rows[0].max_attempts || 0) : 0;
-
-      if (maxAttempts > 0) {
-        await ensureAttemptRow(competitionId, req.session.userId, puzzleId);
-        const info = await getAttemptInfo(competitionId, req.session.userId, puzzleId);
-        const remaining = calcRemainingAttempts(maxAttempts, info.attempts_used, info.extra_attempts);
-
-        if (remaining <= 0) {
-          return res.redirect(
-            `/puzzles/${puzzleId}?result=no_attempts&competition_id=${competitionId}`
-          );
-        }
-
-        await db.execute({
-          sql: `UPDATE competition_attempts
-                SET attempts_used = attempts_used + 1
-                WHERE competition_id = ? AND user_id = ? AND puzzle_id = ?`,
-          args: [competitionId, req.session.userId, puzzleId]
-        });
-      }
-    }
-  }
-
-  // 答案比较：忽略大小写和所有空白字符
+  // 归一化：忽略大小写和所有空白字符
   const submittedAnswer = req.body.answer ? req.body.answer.replace(/\s+/g, '').toLowerCase() : '';
   const finalAnswer = puzzle.answer.replace(/\s+/g, '').toLowerCase();
 
+  // ① 命中正确答案：不消耗次数
   if (submittedAnswer === finalAnswer) {
-    // 记录比赛解答（如果提供了 competition_id）
     if (competitionId) {
       const userId = req.session.userId;
       const regResult = await db.execute({
@@ -817,6 +781,7 @@ if (competitionId && !isStaff) {
     return res.redirect(`/puzzles/${puzzleId}?result=correct&competition_id=${competitionId || ''}`);
   }
 
+  // ② 命中中间答案：不消耗次数
   const interResult = await db.execute({
     sql: 'SELECT * FROM intermediate_answers WHERE puzzle_id = ?',
     args: [puzzleId]
@@ -827,6 +792,48 @@ if (competitionId && !isStaff) {
       const info = inter.info || '';
       const infoParam = encodeURIComponent(info);
       return res.redirect(`/puzzles/${puzzleId}?result=intermediate&intermediate_info=${infoParam}&competition_id=${competitionId || ''}`);
+    }
+  }
+
+  // ③ 走到这里说明是错误答案：此时才检查并消耗提交次数
+  if (competitionId && !isStaff) {
+    const cpResult = await db.execute({
+      sql: 'SELECT max_attempts FROM competition_puzzles WHERE competition_id = ? AND puzzle_id = ?',
+      args: [competitionId, puzzleId]
+    });
+    const maxAttempts = cpResult.rows.length > 0 ? (cpResult.rows[0].max_attempts || 0) : 0;
+
+    if (maxAttempts > 0) {
+      const userId = req.session.userId;
+
+      // 确保存在统计行
+      await db.execute({
+        sql: `INSERT OR IGNORE INTO competition_attempts
+              (competition_id, user_id, puzzle_id, attempts_used, extra_attempts)
+              VALUES (?, ?, ?, 0, 0)`,
+        args: [competitionId, userId, puzzleId]
+      });
+
+      const infoResult = await db.execute({
+        sql: 'SELECT attempts_used, extra_attempts FROM competition_attempts WHERE competition_id = ? AND user_id = ? AND puzzle_id = ?',
+        args: [competitionId, userId, puzzleId]
+      });
+      const info = infoResult.rows[0] || { attempts_used: 0, extra_attempts: 0 };
+      const remaining = Math.max(
+        0,
+        maxAttempts + (info.extra_attempts || 0) - (info.attempts_used || 0)
+      );
+
+      if (remaining <= 0) {
+        return res.redirect(`/puzzles/${puzzleId}?result=no_attempts&competition_id=${competitionId}`);
+      }
+
+      await db.execute({
+        sql: `UPDATE competition_attempts
+              SET attempts_used = attempts_used + 1
+              WHERE competition_id = ? AND user_id = ? AND puzzle_id = ?`,
+        args: [competitionId, userId, puzzleId]
+      });
     }
   }
 
