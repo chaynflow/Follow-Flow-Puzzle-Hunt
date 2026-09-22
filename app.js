@@ -1,7 +1,4 @@
 // app.js
-const dns = require('dns');
-dns.setDefaultResultOrder('ipv4first');
-
 require('dotenv').config();
 const express = require('express');
 const session = require('express-session');
@@ -20,21 +17,6 @@ function escapeHtml(str) {
             .replace(/"/g, '&quot;')
             .replace(/'/g, '&#39;');
 }
-
-const nodemailer = require('nodemailer');
-
-const transporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST,
-  port: parseInt(process.env.SMTP_PORT, 10) || 465,
-  secure: process.env.SMTP_SECURE === 'true',
-  auth: {
-    user: process.env.SMTP_USER,
-    pass: process.env.SMTP_PASS
-  },
-  dnsOptions: {
-    family: 4  // 强制 IPv4
-  }
-});
 
 // 辅助函数：将 Markdown 图片语法转换为 <img> 标签，其余文本转义
 function renderMarkdownImages(text) {
@@ -164,7 +146,7 @@ app.get('/register', (req, res) => {
 });
 
 // 注册处理
-// 注册处理：发送验证码
+// 注册处理
 app.post('/register', async (req, res) => {
   const { username, email, password, confirm_password } = req.body;
   if (!username || !email || !password || !confirm_password) {
@@ -180,111 +162,27 @@ app.post('/register', async (req, res) => {
     return res.render('register', { error: '两次输入的密码不一致' });
   }
 
-  // 检查正式用户表里是否已存在
-  const userExists = await db.execute({
-    sql: 'SELECT * FROM users WHERE username = ? OR email = ?',
-    args: [username, email]
+  const userResult = await db.execute({
+    sql: 'SELECT * FROM users WHERE username = ?',
+    args: [username]
   });
-  if (userExists.rows.length > 0) {
-    return res.render('register', { error: '用户名或邮箱已被注册' });
+  if (userResult.rows.length > 0) {
+    return res.render('register', { error: '用户名已存在' });
   }
 
-  // 生成 6 位验证码
-  const code = String(Math.floor(100000 + Math.random() * 900000));
+  const emailResult = await db.execute({
+    sql: 'SELECT * FROM users WHERE email = ?',
+    args: [email]
+  });
+  if (emailResult.rows.length > 0) {
+    return res.render('register', { error: '邮箱已被注册' });
+  }
+
   const saltRounds = 10;
   const passwordHash = bcrypt.hashSync(password, saltRounds);
-
-  // 写入或更新 pending_registrations（同名/同邮箱视为重发）
-  await db.execute({
-    sql: `INSERT INTO pending_registrations (username, email, password_hash, code, attempts, created_at)
-          VALUES (?, ?, ?, ?, 0, CURRENT_TIMESTAMP)
-          ON CONFLICT(email) DO UPDATE SET
-            username = excluded.username,
-            password_hash = excluded.password_hash,
-            code = excluded.code,
-            attempts = 0,
-            created_at = CURRENT_TIMESTAMP`,
-    args: [username, email, passwordHash, code]
-  });
-
-  // 发送邮件
-  try {
-    await transporter.sendMail({
-      from: `"Follow-Flow Puzzle Hunt" <${process.env.SMTP_FROM}>`,
-      to: email,
-      subject: '【Follow-Flow Puzzle Hunt】注册验证码',
-      text: `您的注册验证码是：${code}\n\n此验证码 10 分钟内有效，请勿泄露给他人。`,
-      html: `<p>您的注册验证码是：</p><h2 style="color:#007bff;">${code}</h2><p>此验证码 10 分钟内有效，请勿泄露给他人。</p>`
-    });
-  } catch (err) {
-    console.error('发送验证码失败:', err);
-    return res.render('register', { error: '验证码发送失败，请稍后重试' });
-  }
-
-  res.redirect(`/verify?email=${encodeURIComponent(email)}`);
-});
-
-// 验证码输入页
-app.get('/verify', (req, res) => {
-  const email = req.query.email || '';
-  if (!email) return res.redirect('/register');
-  res.render('verify', { email, error: null });
-});
-
-// 验证提交
-app.post('/verify', async (req, res) => {
-  const { email, code } = req.body;
-  if (!email || !code) {
-    return res.render('verify', { email, error: '请填写验证码' });
-  }
-
-  const record = await db.execute({
-    sql: 'SELECT * FROM pending_registrations WHERE email = ?',
-    args: [email]
-  });
-  if (record.rows.length === 0) {
-    return res.render('verify', { email, error: '没有待验证的注册记录，请重新注册' });
-  }
-  const pending = record.rows[0];
-
-  // 检查过期（10 分钟）
-  const created = new Date(pending.created_at).getTime();
-  if (Date.now() - created > 10 * 60 * 1000) {
-    await db.execute({
-      sql: 'DELETE FROM pending_registrations WHERE email = ?',
-      args: [email]
-    });
-    return res.render('verify', { email, error: '验证码已过期，请重新注册' });
-  }
-
-  // 检查尝试次数
-  if (pending.attempts >= 5) {
-    await db.execute({
-      sql: 'DELETE FROM pending_registrations WHERE email = ?',
-      args: [email]
-    });
-    return res.render('verify', { email, error: '尝试次数过多，请重新注册' });
-  }
-
-  // 校验验证码
-  if (String(code).trim() !== String(pending.code).trim()) {
-    await db.execute({
-      sql: 'UPDATE pending_registrations SET attempts = attempts + 1 WHERE email = ?',
-      args: [email]
-    });
-    return res.render('verify', { email, error: '验证码错误' });
-  }
-
-  // 正式添加用户
   await db.execute({
     sql: 'INSERT INTO users (username, email, password_hash, is_approved, role) VALUES (?, ?, ?, 0, ?)',
-    args: [pending.username, pending.email, pending.password_hash, 'user']
-  });
-
-  // 删除临时记录
-  await db.execute({
-    sql: 'DELETE FROM pending_registrations WHERE email = ?',
-    args: [email]
+    args: [username, email, passwordHash, 'user']
   });
 
   res.redirect('/login?registered=1');
