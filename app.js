@@ -1025,6 +1025,7 @@ app.post('/competitions/:id/edit', requireAuth, requireStaff, async (req, res) =
   const unlockIds = req.body.unlock_ids || [];
   const unlockCounts = req.body.unlock_counts || [];
   const isMeta = req.body.is_meta || [];
+  const hintMultipliers = req.body.hint_point_multipliers || [];
   const maxAttemptsArr = req.body.max_attempts || [];
   const refillCostArr = req.body.attempt_refill_cost || [];
 
