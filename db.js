@@ -230,6 +230,18 @@ async function initDB() {
       console.log('已重置 root 密码');
     }
   }
+  // 创建待验证注册表
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS pending_registrations (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      username TEXT UNIQUE NOT NULL,
+      email TEXT UNIQUE NOT NULL,
+      password_hash TEXT NOT NULL,
+      code TEXT NOT NULL,
+      attempts INTEGER DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
 }
 
 module.exports = { db, initDB };

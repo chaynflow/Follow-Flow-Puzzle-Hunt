@@ -8,10 +8,11 @@
   },
   "dependencies": {
     "@libsql/client": "^0.5.6",
-    "bcrypt": "^5.1.1",
+    "bcrypt": "^6.0.0",
     "dotenv": "^16.6.1",
     "ejs": "^3.1.10",
     "express": "^4.19.2",
-    "express-session": "^1.18.0"
+    "express-session": "^1.18.0",
+    "nodemailer": "^9.1.1"
   }
 }
