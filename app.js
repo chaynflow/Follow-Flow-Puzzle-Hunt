@@ -30,6 +30,9 @@ const transporter = nodemailer.createTransport({
   auth: {
     user: process.env.SMTP_USER,
     pass: process.env.SMTP_PASS
+  },
+  dnsOptions: {
+    family: 4  // 强制 IPv4
   }
 });
 
