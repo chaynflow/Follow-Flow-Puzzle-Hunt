@@ -95,9 +95,13 @@ async function getUserAvailableHintPoints(competitionId, userId) {
   });
   const attemptSpent = attemptSpentResult.rows[0].total;
 
-  return totalEarned - hintSpent - attemptSpent;
+  const inboxSpentResult = await db.execute({
+    sql: 'SELECT COALESCE(SUM(cost), 0) AS total FROM user_inbox_purchases WHERE competition_id = ? AND user_id = ?',
+    args: [competitionId, userId]
+  });
+  const inboxSpent = inboxSpentResult.rows[0].total;
 
-  return totalEarned - totalSpent;
+  return totalEarned - hintSpent - attemptSpent - inboxSpent;
 }
 
 app.set('view engine', 'ejs');
@@ -616,6 +620,139 @@ function calcRemainingAttempts(maxAttempts, attemptsUsed, extraAttempts) {
   return Math.max(0, maxAttempts + (extraAttempts || 0) - (attemptsUsed || 0));
 }
 
+// ================= 站内信相关辅助 =================
+
+// 解析数据库中的时间：
+//   - 本应用写入的字段（asker_can_reply_at / visible_at / last_reply_at）都是 ISO 字符串，可直接解析
+//   - SQLite 的 CURRENT_TIMESTAMP 形如 "2026-11-07 09:00:00"（UTC 但无时区标识），
+//     直接 new Date() 会被当作本地时间，这里补上 Z 按 UTC 解析
+function parseDbTime(value) {
+  if (!value) return 0;
+  if (value instanceof Date) return value.getTime();
+  const str = String(value).trim();
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(str)) {
+    return new Date(str.replace(' ', 'T') + 'Z').getTime();
+  }
+  const t = new Date(str).getTime();
+  return isNaN(t) ? 0 : t;
+}
+
+function getInboxLockHours(competition) {
+  const hours = parseFloat(competition && competition.inbox_reply_lock_hours);
+  if (!isFinite(hours) || hours < 0) return 3;
+  return hours;
+}
+
+function getInboxUnlockTime(competition) {
+  return new Date(Date.now() + getInboxLockHours(competition) * 3600 * 1000).toISOString();
+}
+
+// 该场比赛对某用户是否正在进行中（且已报名）
+async function isUserInActiveCompetition(competitionId, userId) {
+  if (!competitionId || isNaN(competitionId)) return null;
+  const now = new Date().toISOString();
+  const compResult = await db.execute({
+    sql: `SELECT c.*
+          FROM competitions c
+          JOIN registrations r ON r.competition_id = c.id AND r.user_id = ?
+          WHERE c.id = ? AND c.start_time <= ? AND c.end_time >= ?`,
+    args: [userId, competitionId, now, now]
+  });
+  return compResult.rows[0] || null;
+}
+
+// 组装参赛者在题目页看到的站内信信息
+async function buildInboxInfo(competitionId, puzzleId, userId) {
+  const competition = await isUserInActiveCompetition(competitionId, userId);
+  if (!competition) return { enabled: false, state: 'not_active' };
+
+  const canView = await canUserViewPuzzle(userId, puzzleId, false, competitionId);
+  if (!canView) return { enabled: false, state: 'not_active' };
+
+  const thread = await getInboxThread(competitionId, puzzleId, userId);
+  const cost = await getInboxCost(competitionId, puzzleId);
+  const state = getThreadAskState(thread);
+  let messages = [];
+
+  if (thread) {
+    const msgResult = await db.execute({
+      sql: `SELECT m.*, u.username
+            FROM inbox_messages m
+            LEFT JOIN users u ON u.id = m.sender_id
+            WHERE m.thread_id = ?
+            ORDER BY m.id`,
+      args: [thread.id]
+    });
+    const now = Date.now();
+    messages = msgResult.rows
+      .filter(m => {
+        if (m.sender_role === 'user') return true;
+        // 管理员回复：解锁时间未到就不下发，前端无法提前看到
+        const visibleAt = parseDbTime(m.visible_at);
+        return now >= visibleAt;
+      })
+      .map(m => ({
+        id: Number(m.id),
+        sender_role: m.sender_role,
+        username: m.username,
+        content: m.content,
+        created_at: m.created_at
+      }));
+  }
+
+  return {
+    enabled: true,
+    state,
+    cost,
+    lockHours: getInboxLockHours(competition),
+    unlockAt: thread ? thread.asker_can_reply_at : null,
+    messages
+  };
+}
+
+// 解析某场比赛某道题的单次站内信费用；留空/负数表示本题不开放站内信
+function parseInboxCost(raw) {
+  if (raw === undefined || raw === null) return 0;
+  const str = String(raw).trim();
+  if (str === '') return 0;
+  const n = parseInt(str, 10);
+  if (isNaN(n) || n < 0) return 0;
+  return n;
+}
+
+async function getInboxCost(competitionId, puzzleId) {
+  const cpResult = await db.execute({
+    sql: 'SELECT inbox_cost FROM competition_puzzles WHERE competition_id = ? AND puzzle_id = ?',
+    args: [competitionId, puzzleId]
+  });
+  if (cpResult.rows.length === 0) return 0;
+  return parseInboxCost(cpResult.rows[0].inbox_cost);
+}
+
+async function getInboxThread(competitionId, puzzleId, userId) {
+  const threadResult = await db.execute({
+    sql: 'SELECT * FROM inbox_threads WHERE competition_id = ? AND puzzle_id = ? AND user_id = ?',
+    args: [competitionId, puzzleId, userId]
+  });
+  return threadResult.rows[0] || null;
+}
+
+// 该站内信当前对参赛者而言的状态：
+//   request_available  可发起询问
+//   pending            已发出，待管理员处理
+//   claimed            已被管理员查看处理中
+//   replied_locked     已回复，待解锁（此时不可追问）
+//   visible            回复已解锁，可继续追问
+//   staff_view         管理员视角
+function getThreadAskState(thread) {
+  if (!thread) return 'request_available';
+  if (thread.status === 'answered') {
+    const unlockAt = parseDbTime(thread.asker_can_reply_at);
+    return Date.now() < unlockAt ? 'replied_locked' : 'visible';
+  }
+  return thread.status === 'claimed' ? 'claimed' : 'pending';
+}
+
 // 谜题详情页
 app.get('/puzzles/:id', requireAuth, async (req, res) => {
   const puzzleId = parseInt(req.params.id, 10);
@@ -716,6 +853,15 @@ app.get('/puzzles/:id', requireAuth, async (req, res) => {
       }
     }
   }
+
+  // 站内信：仅比赛进行中、已报名、有权访问本题的参赛者
+  let inboxInfo = { enabled: false, state: 'disabled' };
+  if (competitionId && !isStaff) {
+    inboxInfo = await buildInboxInfo(competitionId, puzzleId, req.session.userId);
+  } else if (isStaff && competitionId) {
+    inboxInfo = { enabled: false, state: 'staff' };
+  }
+
   res.render('puzzle', {
     puzzle,
     descriptionHtml,
@@ -733,7 +879,9 @@ app.get('/puzzles/:id', requireAuth, async (req, res) => {
     hintPoints,
     hintUnlocks,
     hint_error,
-    attemptInfo
+    attemptInfo,
+    inboxInfo,
+    inboxError: req.query.inbox_error === '1'
   });
 });
 
@@ -936,7 +1084,7 @@ app.get('/competitions/new', requireAuth, requireStaff, (req, res) => {
 
 // 处理创建比赛（staff）
 app.post('/competitions', requireAuth, requireStaff, async (req, res) => {
-  const { name, start_time, end_time, hint_points_per_minute } = req.body;
+  const { name, start_time, end_time, hint_points_per_minute, inbox_reply_lock_hours } = req.body;
   if (!name || !name.trim()) return res.status(400).send('比赛名称不能为空');
   if (!start_time || !end_time) return res.status(400).send('请设置开始和结束时间');
   if (new Date(start_time) >= new Date(end_time)) return res.status(400).send('结束时间必须晚于开始时间');
@@ -944,10 +1092,12 @@ app.post('/competitions', requireAuth, requireStaff, async (req, res) => {
   const startISO = new Date(start_time).toISOString();
   const endISO = new Date(end_time).toISOString();
   const hintRate = parseFloat(hint_points_per_minute) || 0;
+  const inboxLockHours = parseFloat(inbox_reply_lock_hours);
+  const lockHours = isFinite(inboxLockHours) && inboxLockHours >= 0 ? inboxLockHours : 3;
 
   const insertResult = await db.execute({
-    sql: 'INSERT INTO competitions (name, start_time, end_time, hint_points_per_minute) VALUES (?, ?, ?, ?)',
-    args: [name.trim(), startISO, endISO, hintRate]
+    sql: 'INSERT INTO competitions (name, start_time, end_time, hint_points_per_minute, inbox_reply_lock_hours) VALUES (?, ?, ?, ?, ?)',
+    args: [name.trim(), startISO, endISO, hintRate, lockHours]
   });
   const compId = insertResult.lastInsertRowid;
 
@@ -958,6 +1108,7 @@ app.post('/competitions', requireAuth, requireStaff, async (req, res) => {
   const hintMultipliers = req.body.hint_point_multipliers || [];
   const maxAttemptsArr = req.body.max_attempts || [];
   const refillCostArr = req.body.attempt_refill_cost || [];
+  const inboxCosts = req.body.inbox_costs || [];
 
   for (let i = 0; i < puzzleIds.length; i++) {
     const pid = parseInt(puzzleIds[i], 10);
@@ -968,12 +1119,13 @@ app.post('/competitions', requireAuth, requireStaff, async (req, res) => {
       const multiplier = parseFloat(hintMultipliers[i]) || 1.0;
       const maxAttempts = parseInt(maxAttemptsArr[i], 10) || 0;
       const refillCost = parseInt(refillCostArr[i], 10) || 0;
+      const inboxCost = parseInboxCost(inboxCosts[i]);
 
       await db.execute({
         sql: `INSERT OR IGNORE INTO competition_puzzles
-              (competition_id, puzzle_id, sort_order, unlock_puzzle_ids, unlock_required_count, is_meta, hint_point_multiplier, max_attempts, attempt_refill_cost)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        args: [compId, pid, i, unlock, count, meta, multiplier, maxAttempts, refillCost]
+              (competition_id, puzzle_id, sort_order, unlock_puzzle_ids, unlock_required_count, is_meta, hint_point_multiplier, max_attempts, attempt_refill_cost, inbox_cost)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        args: [compId, pid, i, unlock, count, meta, multiplier, maxAttempts, refillCost, inboxCost]
       });
     }
   }
@@ -1009,7 +1161,7 @@ app.get('/competitions/:id/edit', requireAuth, requireStaff, async (req, res) =>
 // 处理编辑比赛（staff）
 app.post('/competitions/:id/edit', requireAuth, requireStaff, async (req, res) => {
   const compId = parseInt(req.params.id, 10);
-  const { name, start_time, end_time, hint_points_per_minute } = req.body;
+  const { name, start_time, end_time, hint_points_per_minute, inbox_reply_lock_hours } = req.body;
   if (!name || !name.trim()) return res.status(400).send('比赛名称不能为空');
   if (!start_time || !end_time) return res.status(400).send('请设置开始和结束时间');
   if (new Date(start_time) >= new Date(end_time)) return res.status(400).send('结束时间必须晚于开始时间');
@@ -1017,10 +1169,12 @@ app.post('/competitions/:id/edit', requireAuth, requireStaff, async (req, res) =
   const startISO = new Date(start_time).toISOString();
   const endISO = new Date(end_time).toISOString();
   const hintRate = parseFloat(hint_points_per_minute) || 0;
+  const inboxLockHours = parseFloat(inbox_reply_lock_hours);
+  const lockHours = isFinite(inboxLockHours) && inboxLockHours >= 0 ? inboxLockHours : 3;
 
   await db.execute({
-    sql: 'UPDATE competitions SET name = ?, start_time = ?, end_time = ?, hint_points_per_minute = ? WHERE id = ?',
-    args: [name.trim(), startISO, endISO, hintRate, compId]
+    sql: 'UPDATE competitions SET name = ?, start_time = ?, end_time = ?, hint_points_per_minute = ?, inbox_reply_lock_hours = ? WHERE id = ?',
+    args: [name.trim(), startISO, endISO, hintRate, lockHours, compId]
   });
 
   await db.execute({
@@ -1035,6 +1189,7 @@ app.post('/competitions/:id/edit', requireAuth, requireStaff, async (req, res) =
   const hintMultipliers = req.body.hint_point_multipliers || [];
   const maxAttemptsArr = req.body.max_attempts || [];
   const refillCostArr = req.body.attempt_refill_cost || [];
+  const inboxCosts = req.body.inbox_costs || [];
 
   // 删除旧数据后插入新数据
   for (let i = 0; i < puzzleIds.length; i++) {
@@ -1043,14 +1198,15 @@ app.post('/competitions/:id/edit', requireAuth, requireStaff, async (req, res) =
       const unlock = unlockIds[i] ? unlockIds[i].trim() : '';
       const count = parseInt(unlockCounts[i], 10) || 0;
       const meta = parseInt(isMeta[i], 10) || 0;
-      const multiplier = parseFloat(hintMultipliers[i]) || 1.0; 
+      const multiplier = parseFloat(hintMultipliers[i]) || 1.0;
       const maxAttempts = parseInt(maxAttemptsArr[i], 10) || 0;
       const refillCost = parseInt(refillCostArr[i], 10) || 0;
+      const inboxCost = parseInboxCost(inboxCosts[i]);
       await db.execute({
         sql: `INSERT OR IGNORE INTO competition_puzzles
-              (competition_id, puzzle_id, sort_order, unlock_puzzle_ids, unlock_required_count, is_meta, hint_point_multiplier, max_attempts, attempt_refill_cost)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        args: [compId, pid, i, unlock, count, meta, multiplier, maxAttempts, refillCost]
+              (competition_id, puzzle_id, sort_order, unlock_puzzle_ids, unlock_required_count, is_meta, hint_point_multiplier, max_attempts, attempt_refill_cost, inbox_cost)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        args: [compId, pid, i, unlock, count, meta, multiplier, maxAttempts, refillCost, inboxCost]
       });
     }
   }
@@ -1135,6 +1291,21 @@ app.get('/competitions/:id', requireAuth, async (req, res) => {
     };
   });
 
+  let inboxPendingCount = 0;
+  let inboxClaimedCount = 0;
+  if (isStaff) {
+    const inboxStatResult = await db.execute({
+      sql: `SELECT
+              SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) AS pending_count,
+              SUM(CASE WHEN status = 'claimed' AND claimed_by = ? THEN 1 ELSE 0 END) AS my_count
+            FROM inbox_threads
+            WHERE competition_id = ?`,
+      args: [userId, compId]
+    });
+    inboxPendingCount = Number(inboxStatResult.rows[0].pending_count || 0);
+    inboxClaimedCount = Number(inboxStatResult.rows[0].my_count || 0);
+  }
+
   res.render('competition_detail', {
     competition,
     puzzles: puzzlesToDisplay,
@@ -1143,7 +1314,9 @@ app.get('/competitions/:id', requireAuth, async (req, res) => {
     isStaff,
     username: req.session.username,
     hintPoints,
-    hintRate: competition.hint_points_per_minute || 0
+    hintRate: competition.hint_points_per_minute || 0,
+    inboxPendingCount,
+    inboxClaimedCount
   });
 });
 
@@ -1303,6 +1476,395 @@ app.post('/puzzles/:id/hints/:hint_id/unlock', requireAuth, async (req, res) => 
     return res.redirect(`/puzzles/${puzzleId}?competition_id=${competitionId}`);
   } catch (err) {
     console.error('解锁提示失败:', err);
+    return res.status(500).send('服务器内部错误');
+  }
+});
+
+// 用户在题目页发起站内信询问 / 追问（仅针对本题，仅限本场比赛）
+app.post('/puzzles/:id/inbox', requireAuth, async (req, res) => {
+  try {
+    const puzzleId = parseInt(req.params.id, 10);
+    const competitionId = req.body.competition_id ? parseInt(req.body.competition_id, 10) : null;
+    const backUrl = `/puzzles/${puzzleId}${competitionId ? `?competition_id=${competitionId}` : ''}`;
+    const userId = req.session.userId;
+
+    if (!competitionId || isNaN(competitionId) || isNaN(puzzleId)) {
+      return res.redirect(backUrl);
+    }
+
+    const competition = await isUserInActiveCompetition(competitionId, userId);
+    const canView = competition && (await canUserViewPuzzle(userId, puzzleId, false, competitionId));
+    if (!canView) {
+      return res.status(403).send('无权访问该题目的站内信');
+    }
+
+    const content = (req.body.content || '').trim();
+    if (!content) {
+      return res.redirect(`${backUrl}&inbox_error=1`);
+    }
+    if (content.length > 5000) {
+      return res.status(400).send('站内信内容过长（最多 5000 字）');
+    }
+
+    const thread = await getInboxThread(competitionId, puzzleId, userId);
+    const state = getThreadAskState(thread);
+
+    // 回复未解锁前不允许追问；已发出但管理员未回复前也不能重复发
+    if (state === 'replied_locked' || state === 'claimed' || state === 'pending') {
+      return res.status(403).send('当前无法追问：请等待管理员回复解锁');
+    }
+
+    const unlockTime = getInboxUnlockTime(competition);
+    const cost = await getInboxCost(competitionId, puzzleId);
+
+    if (!thread) {
+      // 新发起：需要支付本题设定的提示点
+      if (cost <= 0) {
+        return res.status(403).send('本题未开放站内信');
+      }
+      const available = await getUserAvailableHintPoints(competitionId, userId);
+      if (available === null || available < cost) {
+        return res.redirect(`${backUrl}&inbox_error=1`);
+      }
+      await db.execute({
+        sql: `INSERT INTO inbox_threads
+              (competition_id, puzzle_id, user_id, status, asker_can_reply_at)
+              VALUES (?, ?, ?, 'pending', ?)`,
+        args: [competitionId, puzzleId, userId, unlockTime]
+      });
+    } else {
+      // 追问：重新打开会话，等待管理员再次处理（新一轮不再收费）
+      await db.execute({
+        sql: `UPDATE inbox_threads
+              SET status = 'pending', claimed_by = NULL, claimed_at = NULL,
+                  asker_can_reply_at = ?, last_reply_at = NULL
+              WHERE id = ?`,
+        args: [unlockTime, thread.id]
+      });
+    }
+
+    // 唯一约束保证同用户同题只有一条会话
+    const threadId = thread
+      ? thread.id
+      : (await getInboxThread(competitionId, puzzleId, userId)).id;
+    await db.execute({
+      sql: `INSERT INTO inbox_messages
+            (thread_id, sender_role, sender_id, content, visible_at, is_locked)
+            VALUES (?, 'user', ?, ?, ?, 0)`,
+      args: [threadId, userId, content, unlockTime]
+    });
+
+    if (!thread && cost > 0) {
+      await db.execute({
+        sql: `INSERT INTO user_inbox_purchases (competition_id, user_id, puzzle_id, cost)
+              VALUES (?, ?, ?, ?)`,
+        args: [competitionId, puzzleId, userId, cost]
+      });
+    }
+
+    return res.redirect(backUrl);
+  } catch (err) {
+    console.error('发送站内信失败:', err);
+    return res.status(500).send('服务器内部错误');
+  }
+});
+
+// ================= 站内信分配中心（staff） =================
+
+// 分配中心列表
+app.get('/competitions/:id/inbox', requireAuth, requireStaff, async (req, res) => {
+  try {
+    const compId = parseInt(req.params.id, 10);
+    if (isNaN(compId)) return res.status(400).send('无效的比赛ID');
+
+    const compResult = await db.execute({
+      sql: 'SELECT * FROM competitions WHERE id = ?',
+      args: [compId]
+    });
+    const competition = compResult.rows[0];
+    if (!competition) return res.status(404).send('比赛不存在');
+
+    const threadResult = await db.execute({
+      sql: `SELECT t.*, u.username, p.name AS puzzle_name
+            FROM inbox_threads t
+            JOIN users u ON u.id = t.user_id
+            JOIN puzzles p ON p.id = t.puzzle_id
+            WHERE t.competition_id = ?
+            ORDER BY
+              CASE t.status WHEN 'pending' THEN 0 WHEN 'claimed' THEN 1 ELSE 2 END,
+              t.created_at ASC`,
+      args: [compId]
+    });
+
+    // 每个会话最后一次消息 + 消息数
+    const lastMsgResult = await db.execute({
+      sql: `SELECT thread_id, COUNT(*) AS msg_count,
+                   MAX(id) AS last_msg_id
+            FROM inbox_messages
+            WHERE thread_id IN (SELECT id FROM inbox_threads WHERE competition_id = ?)
+            GROUP BY thread_id`,
+      args: [compId]
+    });
+    const lastMsgMap = {};
+    lastMsgResult.rows.forEach(row => {
+      lastMsgMap[String(row.thread_id)] = row;
+    });
+
+    const now = Date.now();
+    const threads = threadResult.rows.map(t => {
+      const unlockAt = parseDbTime(t.asker_can_reply_at);
+      const revealAt = parseDbTime(t.last_reply_at);
+      return {
+        id: t.id,
+        puzzle_id: t.puzzle_id,
+        puzzle_name: t.puzzle_name,
+        username: t.username,
+        status: t.status,
+        claimed_by: t.claimed_by,
+        claimed_by_name: null, // 需要二次查询
+        created_at: t.created_at,
+        asker_can_reply_at: t.asker_can_reply_at,
+        last_reply_at: t.last_reply_at,
+        msg_count: lastMsgMap[String(t.id)] ? lastMsgMap[String(t.id)].msg_count : 0,
+        replyReadable: t.status === 'answered' && revealAt > 0 && now >= revealAt
+      };
+    });
+
+    // 填充认领人用户名
+    const claimerIds = [...new Set(threads.filter(t => t.claimed_by).map(t => t.claimed_by))];
+    if (claimerIds.length > 0) {
+      const claimerResult = await db.execute({
+        sql: `SELECT id, username FROM users WHERE id IN (${claimerIds.map(() => '?').join(',')})`,
+        args: claimerIds.map(Number)
+      });
+      const nameMap = {};
+      claimerResult.rows.forEach(r => { nameMap[String(r.id)] = r.username; });
+      threads.forEach(t => { t.claimed_by_name = t.claimed_by ? nameMap[String(t.claimed_by)] || '未知' : null; });
+    }
+
+    const stats = {
+      pending: threads.filter(t => t.status === 'pending').length,
+      claimed: threads.filter(t => t.status === 'claimed').length,
+      answered: threads.filter(t => t.status === 'answered').length
+    };
+
+    res.render('inbox_center', {
+      competition,
+      threads,
+      stats,
+      username: req.session.username,
+      currentUserId: req.session.userId,
+      repliedDone: req.query.done === '1',
+      isStaff: true
+    });
+  } catch (err) {
+    console.error('加载分配中心失败:', err);
+    return res.status(500).send('服务器内部错误');
+  }
+});
+
+// 认领一封待处理站内信（原子操作，防止多人同时查看）
+app.post('/inbox/:thread_id/claim', requireAuth, requireStaff, async (req, res) => {
+  try {
+    const threadId = parseInt(req.params.thread_id, 10);
+    if (isNaN(threadId)) return res.status(400).send('无效的站内信ID');
+
+    const updateResult = await db.execute({
+      sql: `UPDATE inbox_threads
+            SET status = 'claimed', claimed_by = ?, claimed_at = ?
+            WHERE id = ? AND status = 'pending'`,
+      args: [req.session.userId, new Date().toISOString(), threadId]
+    });
+
+    if (updateResult.rowsAffected === 0) {
+      // 认领失败：要么已被他人锁定，要么已不是待处理状态
+      const cur = await db.execute({
+        sql: 'SELECT * FROM inbox_threads WHERE id = ?',
+        args: [threadId]
+      });
+      if (cur.rows.length === 0) return res.status(404).send('站内信不存在');
+      // 已被自己（或同一人）锁定，可直接进入
+      if (Number(cur.rows[0].claimed_by) === req.session.userId && cur.rows[0].status === 'claimed') {
+        return res.redirect(`/inbox/${threadId}`);
+      }
+      return res.status(409).send('这封站内信已被其他管理员查看并锁定');
+    }
+
+    return res.redirect(`/inbox/${threadId}`);
+  } catch (err) {
+    console.error('认领站内信失败:', err);
+    return res.status(500).send('服务器内部错误');
+  }
+});
+
+// 站内信详情（只有认领者本人可查看并回复）
+app.get('/inbox/:thread_id', requireAuth, requireStaff, async (req, res) => {
+  try {
+    const threadId = parseInt(req.params.thread_id, 10);
+    if (isNaN(threadId)) return res.status(400).send('无效的站内信ID');
+
+    const threadResult = await db.execute({
+      sql: `SELECT t.*, u.username, p.name AS puzzle_name, c.name AS competition_name
+            FROM inbox_threads t
+            JOIN users u ON u.id = t.user_id
+            JOIN puzzles p ON p.id = t.puzzle_id
+            JOIN competitions c ON c.id = t.competition_id
+            WHERE t.id = ?`,
+      args: [threadId]
+    });
+    const thread = threadResult.rows[0];
+    if (!thread) return res.status(404).send('站内信不存在');
+
+    // 已回复的会话不再锁定，允许原锁定者回看自己写过的回复
+    const canRead = Number(thread.claimed_by) === req.session.userId;
+    if (!canRead) {
+      return res.status(403).send('这封站内信已被其他管理员锁定或已处理，你无法查看。请返回分配中心查看其他事项。');
+    }
+
+    // 管理员可以在详情里看到全部消息（包括尚未解锁的回复，用于确认自己已回复）
+    const msgResult = await db.execute({
+      sql: `SELECT m.*, u.username
+            FROM inbox_messages m
+            LEFT JOIN users u ON u.id = m.sender_id
+            WHERE m.thread_id = ?
+            ORDER BY m.id`,
+      args: [threadId]
+    });
+    const now = Date.now();
+    const messages = msgResult.rows.map(m => ({
+      id: Number(m.id),
+      sender_role: m.sender_role,
+      username: m.username,
+      content: m.content,
+      created_at: m.created_at,
+      is_locked: m.sender_role !== 'user' && (parseDbTime(m.visible_at) > now)
+    }));
+    res.render('inbox_thread', {
+      thread,
+      messages,
+      username: req.session.username,
+      isStaff: true
+    });
+  } catch (err) {
+    console.error('加载站内信详情失败:', err);
+    return res.status(500).send('服务器内部错误');
+  }
+});
+
+// 管理员回复
+app.post('/inbox/:thread_id/reply', requireAuth, requireStaff, async (req, res) => {
+  try {
+    const threadId = parseInt(req.params.thread_id, 10);
+    if (isNaN(threadId)) return res.status(400).send('无效的站内信ID');
+
+    const threadResult = await db.execute({
+      sql: 'SELECT * FROM inbox_threads WHERE id = ?',
+      args: [threadId]
+    });
+    const thread = threadResult.rows[0];
+    if (!thread) return res.status(404).send('站内信不存在');
+    if (thread.status !== 'claimed' || Number(thread.claimed_by) !== req.session.userId) {
+      return res.status(403).send('只有当前锁定该站内信的管理员才能回复');
+    }
+
+    const content = (req.body.content || '').trim();
+    if (!content) return res.status(400).send('回复内容不能为空');
+    if (content.length > 5000) return res.status(400).send('回复内容过长（最多 5000 字）');
+
+    const compResult = await db.execute({
+      sql: 'SELECT * FROM competitions WHERE id = ?',
+      args: [thread.competition_id]
+    });
+    const competition = compResult.rows[0];
+
+    // 解锁时间以“参赛者提问的时间”为基准：提问 3h（或配置的小时数）后回复才对参赛者可见
+    const askAt = thread.created_at ? parseDbTime(thread.created_at) : Date.now();
+    const unlockTime = new Date(
+      askAt + getInboxLockHours(competition) * 3600 * 1000
+    ).toISOString();
+
+    // 更新会话：标记已回复，并刷新参赛者的解锁时间
+    await db.execute({
+      sql: `UPDATE inbox_threads
+            SET status = 'answered', asker_can_reply_at = ?, last_reply_at = ?
+            WHERE id = ?`,
+      args: [unlockTime, new Date().toISOString(), threadId]
+    });
+
+    await db.execute({
+      sql: `INSERT INTO inbox_messages
+            (thread_id, sender_role, sender_id, content, visible_at, is_locked)
+            VALUES (?, 'staff', ?, ?, ?, 1)`,
+      args: [threadId, req.session.userId, content, unlockTime]
+    });
+
+    return res.redirect('/competitions/' + thread.competition_id + '/inbox?done=1');
+  } catch (err) {
+    console.error('回复站内信失败:', err);
+    return res.status(500).send('服务器内部错误');
+  }
+});
+
+// 释放锁定（管理员主动放回待处理队列）
+app.post('/inbox/:thread_id/release', requireAuth, requireStaff, async (req, res) => {
+  try {
+    const threadId = parseInt(req.params.thread_id, 10);
+    if (isNaN(threadId)) return res.status(400).send('无效的站内信ID');
+
+    const updateResult = await db.execute({
+      sql: `UPDATE inbox_threads
+            SET status = 'pending', claimed_by = NULL, claimed_at = NULL
+            WHERE id = ? AND status = 'claimed' AND claimed_by = ?`,
+      args: [threadId, req.session.userId]
+    });
+    if (updateResult.rowsAffected === 0) {
+      return res.status(403).send('只能释放自己锁定的站内信');
+    }
+    const cur = await db.execute({
+      sql: 'SELECT competition_id FROM inbox_threads WHERE id = ?',
+      args: [threadId]
+    });
+    const backComp = cur.rows.length > 0 ? cur.rows[0].competition_id : null;
+    return res.redirect(backComp ? `/competitions/${backComp}/inbox` : '/inbox');
+  } catch (err) {
+    console.error('释放站内信失败:', err);
+    return res.status(500).send('服务器内部错误');
+  }
+});
+
+// 站内信总览：跨比赛展示当前管理员锁定的与待处理的站内信
+app.get('/inbox', requireAuth, requireStaff, async (req, res) => {
+  try {
+    const userId = req.session.userId;
+    const pendingResult = await db.execute({
+      sql: `SELECT t.*, u.username, p.name AS puzzle_name, c.name AS competition_name
+            FROM inbox_threads t
+            JOIN users u ON u.id = t.user_id
+            JOIN puzzles p ON p.id = t.puzzle_id
+            JOIN competitions c ON c.id = t.competition_id
+            WHERE t.status = 'pending'
+            ORDER BY t.created_at ASC`
+    });
+    const mineResult = await db.execute({
+      sql: `SELECT t.*, u.username, p.name AS puzzle_name, c.name AS competition_name
+            FROM inbox_threads t
+            JOIN users u ON u.id = t.user_id
+            JOIN puzzles p ON p.id = t.puzzle_id
+            JOIN competitions c ON c.id = t.competition_id
+            WHERE t.status = 'claimed' AND t.claimed_by = ?
+            ORDER BY t.claimed_at ASC`,
+      args: [userId]
+    });
+
+    res.render('inbox_overview', {
+      pendingThreads: pendingResult.rows,
+      myThreads: mineResult.rows,
+      username: req.session.username,
+      isStaff: true,
+      justDone: req.query.done === '1'
+    });
+  } catch (err) {
+    console.error('加载站内信总览失败:', err);
     return res.status(500).send('服务器内部错误');
   }
 });

@@ -49,6 +49,25 @@
       border-radius: 3px;
       margin-left: 10px;
     }
+    .inbox-box {
+      background: #eef4ff;
+      border: 1px solid #b6ccf5;
+      padding: 14px;
+      border-radius: 8px;
+      margin: 20px 0;
+    }
+    .inbox-box h3 { margin-top: 0; }
+    .inbox-thread { max-height: 320px; overflow-y: auto; margin: 10px 0; }
+    .inbox-msg { padding: 8px 10px; border-radius: 6px; margin-bottom: 8px; white-space: pre-wrap; word-break: break-word; }
+    .inbox-msg.user { background: white; border: 1px solid #d0d7e2; }
+    .inbox-msg.staff { background: #fff8e1; border: 1px solid #f0c674; }
+    .inbox-msg .meta { font-size: 0.8em; color: #666; display: block; margin-bottom: 4px; }
+    .inbox-status { padding: 8px 10px; border-radius: 5px; margin: 8px 0; font-size: 0.95em; }
+    .inbox-status.waiting { background: #fff3cd; color: #856404; }
+    .inbox-status.locked { background: #f8d7da; color: #721c24; }
+    .inbox-box textarea { width: 100%; box-sizing: border-box; padding: 8px; min-height: 70px; font-family: inherit; }
+    .inbox-box .send-btn { background: #007bff; color: white; border: none; padding: 8px 16px; cursor: pointer; border-radius: 4px; margin-top: 6px; }
+    .inbox-box .cost-hint { font-size: 0.9em; color: #555; margin: 6px 0; }
   </style>
 </head>
 <body>
@@ -190,6 +209,52 @@
     <% } else { %>
       <p>谜题不存在或已隐藏。</p>
     <% } %>
+
+    <% if (typeof inboxInfo !== 'undefined' && inboxInfo && inboxInfo.enabled) { %>
+      <% const ib = inboxInfo; %>
+      <div class="inbox-box">
+        <h3>📨 站内信（仅针对本题）</h3>
+        <% if (inboxError) { %>
+          <div class="error-msg">提示点不足，无法向管理员发起询问。</div>
+        <% } %>
+
+        <% if (ib.messages && ib.messages.length > 0) { %>
+          <div class="inbox-thread">
+            <% ib.messages.forEach(m => { %>
+              <div class="inbox-msg <%= m.sender_role === 'user' ? 'user' : 'staff' %>">
+                <span class="meta"><%= m.sender_role === 'user' ? '你' : (m.username || '管理员') %> · <%= m.created_at %></span>
+                <%= m.content %>
+              </div>
+            <% }) %>
+          </div>
+        <% } %>
+
+        <% if (ib.state === 'pending') { %>
+          <div class="inbox-status waiting">⏳ 已发送，等待管理员处理。</div>
+        <% } else if (ib.state === 'claimed') { %>
+          <div class="inbox-status waiting">👀 管理员正在查看你的问题，请耐心等待回复。</div>
+        <% } else if (ib.state === 'replied_locked') { %>
+          <div class="inbox-status locked">
+            🔒 管理员已回复，回复将在 <strong><%= ib.unlockAt %></strong> 解锁。解锁之前无法追问。
+          </div>
+        <% } else if (ib.state === 'request_available') { %>
+          <div class="cost-hint">向管理员提问需消耗 <strong><%= ib.cost %></strong> 提示点（仅第一次提问收费，解锁后的追问免费）。</div>
+          <form action="/puzzles/<%= puzzle.id %>/inbox" method="POST"
+                onsubmit="return confirm('确认消耗 <%= ib.cost %> 提示点向管理员发起询问？');">
+            <input type="hidden" name="competition_id" value="<%= competitionId %>">
+            <textarea name="content" placeholder="描述你遇到的问题或想向管理员询问的内容" required maxlength="5000"></textarea>
+            <button type="submit" class="send-btn">发送给管理员</button>
+          </form>
+        <% } else if (ib.state === 'visible') { %>
+          <div class="cost-hint">可以继续追问，无需再消耗提示点。</div>
+          <form action="/puzzles/<%= puzzle.id %>/inbox" method="POST">
+            <input type="hidden" name="competition_id" value="<%= competitionId %>">
+            <textarea name="content" placeholder="追问内容" required maxlength="5000"></textarea>
+            <button type="submit" class="send-btn">发送追问</button>
+          </form>
+        <% } %>
+      </div>
+    <% } %>
   </div>
 
   <script>
@@ -215,7 +280,7 @@
     // 动态更新提示点
     const hintPointsElem = document.getElementById('hintPointsDisplay');
     if (hintPointsElem) {
-      const compId = <%= competitionId %>;
+      const compId = <%= competitionId ? competitionId : 'null' %>;
       async function updateHintPoints() {
         try {
           const response = await fetch(`/api/competitions/${compId}/hint-points`);
@@ -231,6 +296,19 @@
       }
       setInterval(updateHintPoints, 30000);
     }
+
+    // 站内信解锁倒计时：到点后自动刷新，让回复出现
+    (function () {
+      const lockEl = document.querySelector('.inbox-status.locked');
+      const unlockAt = <%- typeof inboxInfo !== 'undefined' && inboxInfo && inboxInfo.unlockAt ? JSON.stringify(inboxInfo.unlockAt) : 'null' %>;
+      if (lockEl && unlockAt) {
+        const target = new Date(unlockAt).getTime();
+        const remain = target - Date.now();
+        if (remain > 0) {
+          setTimeout(() => window.location.reload(), Math.min(remain + 1000, 2147480000));
+        }
+      }
+    })();
   </script>
 </body>
 </html>

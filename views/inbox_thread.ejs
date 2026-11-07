@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>站内信 - <%= thread.puzzle_name %> - Follow-Flow Puzzle Hunt</title>
+  <style>
+    body { font-family: Arial, sans-serif; max-width: 800px; margin: 30px auto; padding: 20px; }
+    .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+    .back-link { color: #007bff; text-decoration: none; }
+    .info-box { background: #f8f9fa; border-radius: 8px; padding: 14px 16px; margin-bottom: 16px; font-size: 0.95em; }
+    .info-box p { margin: 4px 0; }
+    .thread { max-height: 460px; overflow-y: auto; margin-bottom: 16px; }
+    .msg { padding: 10px 12px; border-radius: 8px; margin-bottom: 10px; white-space: pre-wrap; word-break: break-word; }
+    .msg.user { background: #ffffff; border: 1px solid #d0d7e2; }
+    .msg.staff { background: #fff8e1; border: 1px solid #f0c674; }
+    .msg .meta { display: block; font-size: 0.8em; color: #666; margin-bottom: 4px; }
+    .lock-tag { display: inline-block; background: #dc3545; color: white; font-size: 0.75em; padding: 1px 6px; border-radius: 8px; margin-left: 6px; }
+    textarea { width: 100%; box-sizing: border-box; min-height: 100px; padding: 10px; font-family: inherit; }
+    .btn { border: none; padding: 9px 16px; border-radius: 4px; cursor: pointer; color: white; }
+    .btn-primary { background: #28a745; }
+    .btn-danger { background: #6c757d; }
+    .actions { margin-top: 10px; display: flex; gap: 10px; align-items: center; }
+    .help-text { font-size: 0.85em; color: #666; margin-top: 6px; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>📨 站内信详情</h1>
+    <a href="/competitions/<%= thread.competition_id %>/inbox" class="back-link">&larr; 返回分配中心</a>
+  </div>
+
+  <div class="info-box">
+    <p><strong>比赛：</strong><%= thread.competition_name %></p>
+    <p><strong>题目：</strong><%= thread.puzzle_name %></p>
+    <p><strong>提问者：</strong><%= thread.username %></p>
+    <p><strong>发起时间：</strong><%= thread.created_at %></p>
+    <% if (thread.status === 'answered' && thread.asker_can_reply_at) { %>
+      <p><strong>回复解锁时间：</strong><%= thread.asker_can_reply_at %>（到点后参赛者才能看到回复）</p>
+    <% } %>
+    <p><strong>状态：</strong>你已锁定该站内信（其他管理员不可同时查看）</p>
+  </div>
+
+  <div class="thread">
+    <% messages.forEach(m => { %>
+      <div class="msg <%= m.sender_role === 'user' ? 'user' : 'staff' %>">
+        <span class="meta">
+          <%= m.sender_role === 'user' ? m.username + '（参赛者）' : (m.username || '管理员') + '（管理员）' %>
+          · <%= m.created_at %>
+          <% if (m.is_locked) { %><span class="lock-tag">尚未解锁</span><% } %>
+        </span>
+        <%= m.content %>
+      </div>
+    <% }) %>
+  </div>
+
+  <form action="/inbox/<%= thread.id %>/reply" method="POST">
+    <textarea name="content" placeholder="输入给参赛者的回复" required maxlength="5000"></textarea>
+    <div class="actions">
+      <button type="submit" class="btn btn-primary">回复并完成</button>
+    </div>
+    <div class="help-text">
+      回复后该站内信将被标记为已回复；参赛者需要等待解锁延迟结束才能看到回复，解锁前不能追问。
+    </div>
+  </form>
+
+  <% if (thread.status === 'answered') { %>
+    <p class="help-text">该站内信已回复并锁定。若需再次回复，请在参赛者解锁并追问后处理。</p>
+  <% } else { %>
+    <form action="/inbox/<%= thread.id %>/release" method="POST" style="margin-top:16px;"
+          onsubmit="return confirm('确定释放锁定，把该站内信放回待处理队列吗？');">
+      <button type="submit" class="btn btn-danger">放弃并释放锁定</button>
+    </form>
+  <% } %>
+</body>
+</html>

@@ -27,6 +27,26 @@
       margin-right: 5px;
     }
     .hint-points-box { background: #e9f7ef; padding: 10px; border-radius: 5px; margin-top: 10px; }
+    .inbox-link {
+      display: inline-block;
+      margin-left: 15px;
+      padding: 6px 12px;
+      background: #eef4ff;
+      border: 1px solid #b6ccf5;
+      border-radius: 5px;
+      color: #0056b3;
+      text-decoration: none;
+    }
+    .badge {
+      display: inline-block;
+      margin-left: 6px;
+      padding: 1px 7px;
+      border-radius: 10px;
+      font-size: 0.85em;
+      color: white;
+    }
+    .pending-badge { background: #dc3545; }
+    .mine-badge { background: #6c757d; }
   </style>
 </head>
 <body>
@@ -61,6 +81,18 @@
   </div>
 
   <a href="/competitions/<%= competition.id %>/leaderboard" class="leaderboard-link">查看排行榜</a>
+
+  <% if (isStaff) { %>
+    <a href="/competitions/<%= competition.id %>/inbox" class="inbox-link">
+      📨 站内信对话分配中心
+      <% if (typeof inboxPendingCount !== 'undefined' && inboxPendingCount > 0) { %>
+        <span class="badge pending-badge">待处理 <%= inboxPendingCount %></span>
+      <% } %>
+      <% if (typeof inboxClaimedCount !== 'undefined' && inboxClaimedCount > 0) { %>
+        <span class="badge mine-badge">我锁定的 <%= inboxClaimedCount %></span>
+      <% } %>
+    </a>
+  <% } %>
 
   <h2>题目列表</h2>
   <% if (puzzles.length === 0) { %>

@@ -126,6 +126,9 @@ async function initDB() {
   if (!compColumns.includes('hint_points_per_minute')) {
     await db.execute("ALTER TABLE competitions ADD COLUMN hint_points_per_minute REAL DEFAULT 0");
   }
+  if (!compColumns.includes('inbox_reply_lock_hours')) {
+    await db.execute("ALTER TABLE competitions ADD COLUMN inbox_reply_lock_hours REAL DEFAULT 3");
+  }
 
   // ==================== 比赛-题目关联表 ====================
   await db.execute(`
@@ -209,6 +212,67 @@ async function initDB() {
   if (!cpColumns.includes('attempt_refill_cost')) {
     await db.execute("ALTER TABLE competition_puzzles ADD COLUMN attempt_refill_cost INTEGER DEFAULT 0");
   }
+  if (!cpColumns.includes('inbox_cost')) {
+    await db.execute("ALTER TABLE competition_puzzles ADD COLUMN inbox_cost INTEGER DEFAULT 0");
+  }
+
+  // ==================== 站内信表 ====================
+  // 一封站内信 = 某参赛者在某场比赛中对某道题发起的一次询问。
+  // status: pending（待处理）/ claimed（已被管理员查看并锁定）/ answered（已回复）
+  // 回复在“管理员提交回复”时写入，但只有 asker_can_reply_at 之后才对该参赛者可见，
+  // 在此之前参赛者既看不到回复，也不能追问。
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS inbox_threads (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      competition_id INTEGER NOT NULL,
+      puzzle_id INTEGER NOT NULL,
+      user_id INTEGER NOT NULL,
+      status TEXT DEFAULT 'pending',
+      claimed_by INTEGER,
+      claimed_at DATETIME,
+      asker_can_reply_at DATETIME,
+      last_reply_at DATETIME,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(competition_id, puzzle_id, user_id),
+      FOREIGN KEY (competition_id) REFERENCES competitions(id) ON DELETE CASCADE,
+      FOREIGN KEY (puzzle_id) REFERENCES puzzles(id) ON DELETE CASCADE,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    )
+  `);
+
+  // ==================== 站内信消息表 ====================
+  // is_locked: 管理员回复在解锁时间到达前不能给参赛者看
+  // visible_at: 该消息对参赛者可见的时间（使用时间 + 解锁延迟）
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS inbox_messages (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      thread_id INTEGER NOT NULL,
+      sender_role TEXT NOT NULL,
+      sender_id INTEGER NOT NULL,
+      content TEXT NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      visible_at DATETIME,
+      is_locked INTEGER DEFAULT 0,
+      FOREIGN KEY (thread_id) REFERENCES inbox_threads(id) ON DELETE CASCADE,
+      FOREIGN KEY (sender_id) REFERENCES users(id) ON DELETE CASCADE
+    )
+  `);
+
+  // ==================== 站内信积分流水表 ====================
+  // 专门记录站内信的提示点支出，与提示解锁 / 次数购买分开记账
+  await db.execute(`
+    CREATE TABLE IF NOT EXISTS user_inbox_purchases (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      competition_id INTEGER NOT NULL,
+      user_id INTEGER NOT NULL,
+      puzzle_id INTEGER NOT NULL,
+      cost INTEGER NOT NULL DEFAULT 0,
+      purchased_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (competition_id) REFERENCES competitions(id) ON DELETE CASCADE,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY (puzzle_id) REFERENCES puzzles(id) ON DELETE CASCADE
+    )
+  `);
 
   // ==================== 提交次数使用情况表 ====================
   await db.execute(`

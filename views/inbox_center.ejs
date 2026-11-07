@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>站内信分配中心 - <%= competition.name %> - Follow-Flow Puzzle Hunt</title>
+  <style>
+    body { font-family: Arial, sans-serif; max-width: 900px; margin: 30px auto; padding: 20px; }
+    .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+    .back-link { color: #007bff; text-decoration: none; }
+    .stats { display: flex; gap: 12px; margin-bottom: 20px; }
+    .stat-card { flex: 1; background: #f8f9fa; border-radius: 8px; padding: 12px 16px; }
+    .stat-card strong { display: block; font-size: 1.6em; }
+    .stat-card.pending strong { color: #dc3545; }
+    .stat-card.claimed strong { color: #fd7e14; }
+    .stat-card.answered strong { color: #28a745; }
+    .thread-list { list-style: none; padding: 0; }
+    .thread-item {
+      background: #f1f3f5; border-radius: 6px; padding: 12px 14px; margin-bottom: 10px;
+      display: flex; justify-content: space-between; align-items: center; gap: 12px;
+    }
+    .thread-item.claimed { background: #fff4e5; }
+    .thread-item.answered { background: #eaf7ee; }
+    .thread-main { flex: 1; }
+    .thread-title { font-weight: bold; margin-bottom: 4px; }
+    .thread-meta { font-size: 0.88em; color: #555; }
+    .status-pill { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 0.82em; color: white; margin-left: 6px; }
+    .status-pill.pending { background: #dc3545; }
+    .status-pill.claimed { background: #fd7e14; }
+    .status-pill.answered { background: #28a745; }
+    .lock-info { color: #a15c00; font-size: 0.85em; }
+    .action-form { display: inline-block; }
+    .btn { border: none; padding: 8px 14px; border-radius: 4px; cursor: pointer; color: white; text-decoration: none; display: inline-block; }
+    .btn-primary { background: #007bff; }
+    .btn-disabled { background: #adb5bd; cursor: not-allowed; }
+    .notice { background: #d4edda; color: #155724; padding: 10px 14px; border-radius: 5px; margin-bottom: 14px; }
+    .empty { color: #777; padding: 20px; text-align: center; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>📨 站内信对话分配中心</h1>
+    <a href="/competitions/<%= competition.id %>" class="back-link">&larr; 返回比赛</a>
+  </div>
+
+  <p style="color:#555;">比赛：<strong><%= competition.name %></strong></p>
+
+  <% if (typeof repliedDone !== 'undefined' && repliedDone) { %>
+    <div class="notice">✅ 回复已提交，该站内信已标记为已回复。</div>
+  <% } %>
+
+  <div class="stats">
+    <div class="stat-card pending"><strong><%= stats.pending %></strong>待处理</div>
+    <div class="stat-card claimed"><strong><%= stats.claimed %></strong>已被锁定</div>
+    <div class="stat-card answered"><strong><%= stats.answered %></strong>已回复</div>
+  </div>
+
+  <h2>全部站内信</h2>
+  <% if (threads.length === 0) { %>
+    <p class="empty">暂无站内信。</p>
+  <% } else { %>
+    <ul class="thread-list">
+      <% threads.forEach(t => { %>
+        <li class="thread-item <%= t.status %>">
+          <div class="thread-main">
+            <div class="thread-title">
+              <%= t.username %> · 【<%= t.puzzle_name %>】
+              <span class="status-pill <%= t.status %>">
+                <% if (t.status === 'pending') { %>待处理
+                <% } else if (t.status === 'claimed') { %>处理中
+                <% } else { %>已回复<% } %>
+              </span>
+            </div>
+            <div class="thread-meta">
+              发起时间：<%= t.created_at %> · 消息数：<%= t.msg_count %>
+              <% if (t.status === 'claimed') { %>
+                <span class="lock-info">🔒 已被 <%= t.claimed_by_name || '管理员' %> 锁定</span>
+              <% } %>
+              <% if (t.status === 'answered') { %>
+                <span class="lock-info">回复解锁时间：<%= t.asker_can_reply_at %></span>
+              <% } %>
+            </div>
+          </div>
+          <div>
+            <% if (t.status === 'pending') { %>
+              <form action="/inbox/<%= t.id %>/claim" method="POST" class="action-form" onsubmit="return confirm('查看后将锁定这封站内信，其他管理员无法同时查看。确认？');">
+                <button type="submit" class="btn btn-primary">查看并锁定</button>
+              </form>
+            <% } else if (t.status === 'claimed' && Number(t.claimed_by) === Number(currentUserId)) { %>
+              <a href="/inbox/<%= t.id %>" class="btn btn-primary">继续处理</a>
+            <% } else { %>
+              <span class="btn btn-disabled">已锁定</span>
+            <% } %>
+          </div>
+        </li>
+      <% }) %>
+    </ul>
+  <% } %>
+
+  <script>
+    // 页面每 60 秒自动刷新一次，便于发现新的待处理站内信（若有单选/滚动会重置，属可接受行为）
+    // 为避免打断正在阅读的操作，仅在页面可见时刷新
+    let refreshTimer = setInterval(() => {
+      if (document.visibilityState === 'visible') window.location.reload();
+    }, 60000);
+  </script>
+</body>
+</html>

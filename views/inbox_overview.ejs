@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>站内信总览 - Follow-Flow Puzzle Hunt</title>
+  <style>
+    body { font-family: Arial, sans-serif; max-width: 900px; margin: 30px auto; padding: 20px; }
+    .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+    .back-link { color: #007bff; text-decoration: none; }
+    .notice { background: #d4edda; color: #155724; padding: 10px 14px; border-radius: 5px; margin-bottom: 16px; }
+    table { width: 100%; border-collapse: collapse; margin-bottom: 24px; }
+    th, td { padding: 9px 10px; text-align: left; border-bottom: 1px solid #ddd; font-size: 0.95em; }
+    th { background: #f8f9fa; }
+    .btn { border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; color: white; font-size: 0.9em; }
+    .btn-primary { background: #007bff; }
+    .btn-warn { background: #fd7e14; }
+    .empty { color: #777; padding: 12px 0; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>📨 站内信总览</h1>
+    <a href="/dashboard" class="back-link">&larr; 返回仪表板</a>
+  </div>
+
+  <% if (justDone) { %>
+    <div class="notice">✅ 回复已提交。参赛者将在解锁延迟结束后看到回复。</div>
+  <% } %>
+
+  <h2>我锁定的站内信</h2>
+  <% if (myThreads.length === 0) { %>
+    <p class="empty">暂无。</p>
+  <% } else { %>
+    <table>
+      <thead>
+        <tr><th>比赛</th><th>题目</th><th>提问者</th><th>锁定时间</th><th>操作</th></tr>
+      </thead>
+      <tbody>
+        <% myThreads.forEach(t => { %>
+          <tr>
+            <td><%= t.competition_name %></td>
+            <td><%= t.puzzle_name %></td>
+            <td><%= t.username %></td>
+            <td><%= t.claimed_at %></td>
+            <td><a href="/inbox/<%= t.id %>" class="btn btn-primary" style="text-decoration:none;">继续处理</a></td>
+          </tr>
+        <% }) %>
+      </tbody>
+    </table>
+  <% } %>
+
+  <h2>待处理站内信</h2>
+  <% if (pendingThreads.length === 0) { %>
+    <p class="empty">暂无待处理的站内信。</p>
+  <% } else { %>
+    <table>
+      <thead>
+        <tr><th>比赛</th><th>题目</th><th>提问者</th><th>发起时间</th><th>操作</th></tr>
+      </thead>
+      <tbody>
+        <% pendingThreads.forEach(t => { %>
+          <tr>
+            <td><a href="/competitions/<%= t.competition_id %>/inbox"><%= t.competition_name %></a></td>
+            <td><%= t.puzzle_name %></td>
+            <td><%= t.username %></td>
+            <td><%= t.created_at %></td>
+            <td>
+              <form action="/inbox/<%= t.id %>/claim" method="POST" onsubmit="return confirm('查看后将锁定该站内信，确认？');">
+                <button type="submit" class="btn btn-warn">查看并锁定</button>
+              </form>
+            </td>
+          </tr>
+        <% }) %>
+      </tbody>
+    </table>
+  <% } %>
+</body>
+</html>
