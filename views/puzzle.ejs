@@ -54,7 +54,11 @@
 <body>
   <div class="header">
     <h1>谜题详情</h1>
-    <a href="/dashboard" class="back-link">&larr; 返回仪表板</a>
+    <% if (competitionId) { %>
+      <a href="/competitions/<%= competitionId %>" class="back-link">&larr; 返回比赛</a>
+    <% } else { %>
+      <a href="/dashboard" class="back-link">&larr; 返回仪表板</a>
+    <% } %>
   </div>
 
   <div class="puzzle-card">
