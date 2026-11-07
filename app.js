@@ -1843,7 +1843,8 @@ app.get('/inbox', requireAuth, requireStaff, async (req, res) => {
             JOIN puzzles p ON p.id = t.puzzle_id
             JOIN competitions c ON c.id = t.competition_id
             WHERE t.status = 'pending'
-            ORDER BY t.created_at ASC`
+            ORDER BY t.created_at ASC`,
+      args: []
     });
     const mineResult = await db.execute({
       sql: `SELECT t.*, u.username, p.name AS puzzle_name, c.name AS competition_name

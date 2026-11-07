@@ -3,10 +3,36 @@ require('dotenv').config();
 const { createClient } = require('@libsql/client');
 const bcrypt = require('bcrypt');
 
-const db = createClient({
+const client = createClient({
   url: process.env.TURSO_DATABASE_URL,
   authToken: process.env.TURSO_AUTH_TOKEN,
 });
+
+// @libsql/client 的 HTTP 驱动（Render 上连 Turso 时使用）对对象形式的语句要求 args 必须是数组或对象：
+// 缺少 args 时会对 undefined 调用 Object.entries 而抛错，args 数组里含 undefined 也会被拒绝。
+// 这里做统一修正，避免每个调用点各写一遍：
+//   - 对象形式缺少 args -> 补空数组
+//   - args 数组中的 undefined -> 转为 null（SQL NULL）
+function normalizeStatement(stmt) {
+  if (typeof stmt === 'string') return stmt; // 字符串形式由驱动直接处理，无需 args
+  if (Array.isArray(stmt)) {
+    return stmt.map(normalizeStatement);
+  }
+  const normalized = { ...stmt };
+  if (normalized.args === undefined || normalized.args === null) {
+    normalized.args = [];
+  } else if (Array.isArray(normalized.args)) {
+    normalized.args = normalized.args.map(v => (v === undefined ? null : v));
+  }
+  return normalized;
+}
+
+const db = {
+  execute: (stmt) => client.execute(normalizeStatement(stmt)),
+  batch: (stmts, mode) => client.batch(normalizeStatement(stmts), mode),
+  transaction: (mode) => client.transaction(mode),
+  close: () => client.close(),
+};
 
 async function initDB() {
   // ==================== 用户表 ====================
